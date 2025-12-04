@@ -271,8 +271,8 @@ class WaveSystem(GameSystem):
             # Find spawn position
             x, y = self._get_spawn_position()
             
-            # Spawn enemy
-            config.spawn_fn(self, x, y)
+            # Spawn enemy (spawn_fn is already a bound method, so don't pass self)
+            config.spawn_fn(x, y)
         
         if not self.spawn_queue:
             self.state = WaveState.ACTIVE
