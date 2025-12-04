@@ -114,7 +114,8 @@ class GameLoop:
         # Subscribe to game state events
         self.event_bus.subscribe(GameStateEvent, self._on_game_state_event)
         
-        self.state = GameState.RUNNING
+        # Start in INITIALIZING state - game will change to RUNNING when player starts
+        self.state = GameState.INITIALIZING
     
     def add_system(self, system: GameSystem) -> GameSystem:
         """Add a system to the engine."""
@@ -191,7 +192,7 @@ class GameLoop:
         except Exception:
             pass
         
-        # Skip update if paused (but still render)
+        # Only update game logic when running (not when paused, in menu, or initializing)
         if self.state == GameState.RUNNING:
             # Update systems
             if self.system_manager:

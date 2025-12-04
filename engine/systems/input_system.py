@@ -175,6 +175,7 @@ class InputSystem(GameSystem):
         self._mouse_enabled = True
         self._last_mouse_x = 0.0
         self._last_mouse_y = 0.0
+        self._mouse_button_down = False
         
         # Arrow key aim smoothing
         self._arrow_aim_speed = 180.0  # Degrees per second
@@ -197,8 +198,9 @@ class InputSystem(GameSystem):
             # Track mouse motion
             self.screen.cv.bind('<Motion>', self._on_mouse_motion)
             
-            # Track mouse clicks
-            self.screen.onclick(self._on_mouse_click)
+            # Track mouse clicks using canvas binding (more reliable, doesn't conflict with menu)
+            self.screen.cv.bind('<Button-1>', self._on_mouse_click_event)
+            self.screen.cv.bind('<ButtonRelease-1>', self._on_mouse_release_event)
         except Exception:
             # Mouse tracking may not be available in all environments
             self._mouse_enabled = False
@@ -211,22 +213,41 @@ class InputSystem(GameSystem):
             x = event.x - canvas.winfo_width() / 2
             y = canvas.winfo_height() / 2 - event.y
             
+            # Check if mouse has moved significantly BEFORE updating last position
+            if abs(x - self._last_mouse_x) > 3 or abs(y - self._last_mouse_y) > 3:
+                self.state.using_mouse_aim = True
+            
+            # Update state
             self.state.mouse_x = x
             self.state.mouse_y = y
             self._last_mouse_x = x
             self._last_mouse_y = y
-            
-            # Mark that mouse is being used for aiming
-            if abs(x - self._last_mouse_x) > 5 or abs(y - self._last_mouse_y) > 5:
-                self.state.using_mouse_aim = True
         except Exception:
             pass
     
     def _on_mouse_click(self, x: float, y: float) -> None:
-        """Handle mouse click event."""
+        """Handle mouse click event (legacy turtle handler)."""
         self.state.mouse_clicked = True
         self.state.mouse_x = x
         self.state.mouse_y = y
+    
+    def _on_mouse_click_event(self, event) -> None:
+        """Handle mouse button press event from canvas."""
+        try:
+            canvas = self.screen.cv
+            x = event.x - canvas.winfo_width() / 2
+            y = canvas.winfo_height() / 2 - event.y
+            
+            self.state.mouse_clicked = True
+            self.state.mouse_x = x
+            self.state.mouse_y = y
+            self._mouse_button_down = True
+        except Exception:
+            pass
+    
+    def _on_mouse_release_event(self, event) -> None:
+        """Handle mouse button release event from canvas."""
+        self._mouse_button_down = False
     
     def bind_key(self, key: str, action: GameAction) -> None:
         """Bind a key to an action."""
@@ -346,41 +367,40 @@ class InputSystem(GameSystem):
             velocity.vy = accel_y
         
         # === AIMING (Mouse or Arrow Keys) ===
-        if self._mouse_enabled and self.state.using_mouse_aim:
-            # Mouse aiming - face the cursor
+        # Check if arrow keys are being used for aiming
+        aim_x = 0.0
+        aim_y = 0.0
+        
+        if self.state.is_action_held(GameAction.AIM_UP):
+            aim_y += 1.0
+        if self.state.is_action_held(GameAction.AIM_DOWN):
+            aim_y -= 1.0
+        if self.state.is_action_held(GameAction.AIM_LEFT):
+            aim_x -= 1.0
+        if self.state.is_action_held(GameAction.AIM_RIGHT):
+            aim_x += 1.0
+        
+        # If arrow keys are held, use arrow key aiming
+        if aim_x != 0 or aim_y != 0:
+            target_angle = math.degrees(math.atan2(aim_y, aim_x))
+            
+            # Smooth rotation towards target
+            current = transform.angle
+            diff = self._angle_difference(current, target_angle)
+            
+            max_rotation = self._arrow_aim_speed * dt
+            if abs(diff) <= max_rotation:
+                transform.angle = target_angle
+            else:
+                transform.angle += max_rotation if diff > 0 else -max_rotation
+            
+            # Keep angle in 0-360 range
+            transform.angle = transform.angle % 360
+        elif self._mouse_enabled:
+            # Default: Always aim at mouse cursor
             target_angle = self._calculate_mouse_aim_angle(transform)
             if target_angle is not None:
                 transform.angle = target_angle
-        else:
-            # Arrow key aiming
-            aim_x = 0.0
-            aim_y = 0.0
-            
-            if self.state.is_action_held(GameAction.AIM_UP):
-                aim_y += 1.0
-            if self.state.is_action_held(GameAction.AIM_DOWN):
-                aim_y -= 1.0
-            if self.state.is_action_held(GameAction.AIM_LEFT):
-                aim_x -= 1.0
-            if self.state.is_action_held(GameAction.AIM_RIGHT):
-                aim_x += 1.0
-            
-            # If arrow keys are held, update aim angle
-            if aim_x != 0 or aim_y != 0:
-                target_angle = math.degrees(math.atan2(aim_y, aim_x))
-                
-                # Smooth rotation towards target
-                current = transform.angle
-                diff = self._angle_difference(current, target_angle)
-                
-                max_rotation = self._arrow_aim_speed * dt
-                if abs(diff) <= max_rotation:
-                    transform.angle = target_angle
-                else:
-                    transform.angle += max_rotation if diff > 0 else -max_rotation
-                
-                # Keep angle in 0-360 range
-                transform.angle = transform.angle % 360
         
         # === LEGACY ROTATION (if needed) ===
         turn_speed = physics.angular_acceleration if physics else 360.0
@@ -402,10 +422,10 @@ class InputSystem(GameSystem):
         
         # === COMBAT ===
         if weapon:
-            # Fire on space or mouse click
+            # Fire on space key held OR mouse button held
             weapon.is_firing = (
                 self.state.is_action_held(GameAction.FIRE) or 
-                self.state.mouse_clicked
+                self._mouse_button_down
             )
             
             if self.state.is_action_pressed(GameAction.RELOAD):
@@ -420,8 +440,9 @@ class InputSystem(GameSystem):
             dx = self.state.mouse_x - transform.x
             dy = self.state.mouse_y - transform.y
             
-            # Only update if mouse is far enough from player
-            if abs(dx) > 5 or abs(dy) > 5:
+            # Only skip if mouse is very close to player to avoid jitter
+            distance_sq = dx * dx + dy * dy
+            if distance_sq > 100:  # More than 10 pixels away
                 return math.degrees(math.atan2(dy, dx))
         except Exception:
             pass
@@ -436,6 +457,16 @@ class InputSystem(GameSystem):
         """Enable or disable mouse input."""
         self._mouse_enabled = enabled
     
+    def rebind_keys(self) -> None:
+        """Re-register all key bindings. Call after menu hides to restore bindings."""
+        for key, action in self._key_to_action.items():
+            try:
+                self.screen.onkeypress(lambda k=key: self._on_key_press(k), key)
+                self.screen.onkeyrelease(lambda k=key: self._on_key_release(k), key)
+            except Exception:
+                pass
+        self.screen.listen()
+    
     def cleanup(self) -> None:
         """Unbind all keys."""
         for key in list(self._key_to_action.keys()):
@@ -448,5 +479,7 @@ class InputSystem(GameSystem):
         # Clean up mouse bindings
         try:
             self.screen.cv.unbind('<Motion>')
+            self.screen.cv.unbind('<Button-1>')
+            self.screen.cv.unbind('<ButtonRelease-1>')
         except:
             pass

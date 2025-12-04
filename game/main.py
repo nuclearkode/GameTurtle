@@ -263,6 +263,11 @@ class RoboArena:
         
         # Hide menu
         self.menu.hide()
+        
+        # Re-enable input system key bindings (menu may have overwritten them)
+        input_system = self.game_loop.get_system(InputSystem)
+        if input_system:
+            input_system.rebind_keys()
     
     def _restart_game(self) -> None:
         """Restart the game."""
@@ -273,6 +278,11 @@ class RoboArena:
         self.is_paused = False
         self.game_loop.change_state(GameState.RUNNING)
         self.menu.hide()
+        
+        # Re-enable input system key bindings (menu may have overwritten them)
+        input_system = self.game_loop.get_system(InputSystem)
+        if input_system:
+            input_system.rebind_keys()
     
     def _pause_game(self) -> None:
         """Pause the game."""
@@ -399,7 +409,7 @@ class RoboArena:
         
         # Controls hint
         self._draw_text(
-            "WASD: Move | Arrows/Mouse: Aim | Space: Fire | ESC: Pause | Q: Quit",
+            "WASD: Move | Mouse: Aim | Space/Click: Fire | ESC: Pause",
             0, -hh + 15,
             size=12,
             color="#888888"
@@ -608,13 +618,11 @@ def main():
     print("=" * 50)
     print()
     print("Controls:")
-    print("  W/A/S/D       - Move (omnidirectional)")
-    print("  Arrow Keys    - Aim direction")
-    print("  Mouse         - Aim direction (alternative)")
+    print("  W/A/S/D       - Move (up/left/down/right)")
+    print("  Mouse         - Aim (player faces cursor)")
     print("  Space/Click   - Fire")
     print("  R             - Reload")
     print("  Escape        - Pause Menu")
-    print("  Q             - Quit")
     print()
     print("Upgrades drop from enemies!")
     print("Take damage = 50% chance to lose an upgrade stack")

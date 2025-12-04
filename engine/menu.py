@@ -216,20 +216,39 @@ class MenuSystem:
         ]
     
     def _setup_input(self) -> None:
-        """Set up keyboard and mouse input."""
+        """Set up keyboard and mouse input.
+        
+        Note: Only uses arrow keys for navigation to avoid conflicting with 
+        WASD movement controls in the game. Keys are bound/unbound when menu shows/hides.
+        """
         self.screen.listen()
         
-        # Keyboard navigation
-        self.screen.onkeypress(self._navigate_up, "Up")
-        self.screen.onkeypress(self._navigate_up, "w")
-        self.screen.onkeypress(self._navigate_down, "Down")
-        self.screen.onkeypress(self._navigate_down, "s")
-        self.screen.onkeypress(self._select_button, "Return")
-        self.screen.onkeypress(self._select_button, "space")
-        self.screen.onkeypress(self._handle_escape, "Escape")
-        
-        # Mouse click
+        # Mouse click for menu buttons
         self.screen.onclick(self._on_click)
+        
+        # Note: Key bindings are set up in _bind_menu_keys() when menu is shown
+    
+    def _bind_menu_keys(self) -> None:
+        """Bind menu navigation keys when menu is visible."""
+        try:
+            self.screen.onkeypress(self._navigate_up, "Up")
+            self.screen.onkeypress(self._navigate_down, "Down")
+            self.screen.onkeypress(self._select_button, "Return")
+            self.screen.onkeypress(self._select_button, "space")
+            self.screen.onkeypress(self._handle_escape, "Escape")
+        except Exception:
+            pass
+    
+    def _unbind_menu_keys(self) -> None:
+        """Unbind menu navigation keys when menu is hidden."""
+        try:
+            self.screen.onkeypress(None, "Up")
+            self.screen.onkeypress(None, "Down")
+            self.screen.onkeypress(None, "Return")
+            # Note: Don't unbind space - let game use it
+            self.screen.onkeypress(None, "Escape")
+        except Exception:
+            pass
     
     def _get_current_buttons(self) -> List[MenuButton]:
         """Get the buttons for the current menu state."""
@@ -361,6 +380,7 @@ class MenuSystem:
         self.state = MenuState.MAIN_MENU
         self.selected_index = 0
         self._update_selection()
+        self._bind_menu_keys()
         self.render()
     
     def show_pause_menu(self) -> None:
@@ -368,6 +388,7 @@ class MenuSystem:
         self.state = MenuState.PAUSED
         self.selected_index = 0
         self._update_selection()
+        self._bind_menu_keys()
         self.render()
     
     def show_game_over(self, score: int = 0, wave: int = 0, kills: int = 0) -> None:
@@ -378,6 +399,7 @@ class MenuSystem:
         self.state = MenuState.GAME_OVER
         self.selected_index = 0
         self._update_selection()
+        self._bind_menu_keys()
         self.render()
     
     def show_victory(self, score: int = 0, wave: int = 0, kills: int = 0) -> None:
@@ -388,11 +410,13 @@ class MenuSystem:
         self.state = MenuState.VICTORY
         self.selected_index = 0
         self._update_selection()
+        self._bind_menu_keys()
         self.render()
     
     def hide(self) -> None:
-        """Hide the menu."""
+        """Hide the menu and restore game key bindings."""
         self.state = MenuState.HIDDEN
+        self._unbind_menu_keys()
         self.clear()
     
     def render(self) -> None:
@@ -462,10 +486,10 @@ class MenuSystem:
         # Controls hint
         t.goto(0, -180)
         t.color("#666666")
-        t.write("WASD: Move | Arrow Keys/Mouse: Aim | Space: Fire", 
+        t.write("WASD: Move | Mouse: Aim | Space/Click: Fire", 
                 align="center", font=("Arial", 12, "normal"))
         t.goto(0, -210)
-        t.write("Use ↑↓ or W/S to navigate, Enter to select", 
+        t.write("Use ↑↓ to navigate, Enter/Space to select", 
                 align="center", font=("Arial", 12, "normal"))
     
     def _draw_pause_menu(self) -> None:
