@@ -18,6 +18,10 @@ from .weapon import Weapon, Projectile, WeaponType
 from .ai import AIBrain, AIBehavior, AIState
 from .status import StatusEffects, StatusEffect
 from .tags import PlayerTag, EnemyTag, ProjectileTag, ObstacleTag, PowerupTag
+from .upgrades import (
+    PlayerUpgrades, UpgradeStack, UpgradeType, UpgradeTier,
+    UpgradeDefinition, UPGRADE_DEFINITIONS
+)
 
 __all__ = [
     # Transform & Physics
@@ -50,6 +54,14 @@ __all__ = [
     # Status Effects
     "StatusEffects",
     "StatusEffect",
+    
+    # Upgrades
+    "PlayerUpgrades",
+    "UpgradeStack",
+    "UpgradeType",
+    "UpgradeTier",
+    "UpgradeDefinition",
+    "UPGRADE_DEFINITIONS",
     
     # Tags
     "PlayerTag",

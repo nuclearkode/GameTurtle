@@ -17,6 +17,7 @@ from ..components.weapon import Weapon, Projectile, WeaponType
 from ..components.renderable import Renderable, RenderShape, RenderLayer
 from ..components.collider import Collider, ColliderType, CollisionMask
 from ..components.tags import PlayerTag, ProjectileTag
+from ..components.upgrades import PlayerUpgrades
 
 if TYPE_CHECKING:
     from ..core.entity import Entity
@@ -124,39 +125,67 @@ class WeaponSystem(GameSystem):
         if weapon.max_ammo > 0:
             weapon.ammo -= 1
         
-        # Set cooldown
-        weapon.cooldown = 1.0 / weapon.fire_rate
-        
         # Determine if player-owned
         is_player = self.entities.has_component(entity, PlayerTag)
         
+        # Get upgrade modifiers for player
+        fire_rate_mult = 1.0
+        extra_projectiles = 0
+        projectile_size_mult = 1.0
+        pierce_bonus = 0
+        
+        if is_player:
+            upgrades = self.entities.get_component(entity, PlayerUpgrades)
+            if upgrades:
+                fire_rate_mult = upgrades.fire_rate_multiplier
+                extra_projectiles = int(upgrades.extra_projectiles)
+                projectile_size_mult = upgrades.projectile_size_multiplier
+                pierce_bonus = upgrades.pierce_bonus
+        
+        # Set cooldown (modified by fire rate upgrade)
+        base_cooldown = 1.0 / weapon.fire_rate
+        weapon.cooldown = base_cooldown * fire_rate_mult
+        
         # Fire based on weapon type
         if weapon.weapon_type == WeaponType.SINGLE:
-            self._spawn_projectile(entity, weapon, transform, 0, is_player)
+            self._spawn_projectile(entity, weapon, transform, 0, is_player, 
+                                   size_mult=projectile_size_mult, pierce_bonus=pierce_bonus)
+            
+            # Fire extra projectiles from multishot upgrade
+            if extra_projectiles > 0:
+                for i in range(extra_projectiles):
+                    offset = (i + 1) * 15 * (1 if i % 2 == 0 else -1)
+                    self._spawn_projectile(entity, weapon, transform, offset, is_player,
+                                          size_mult=projectile_size_mult, pierce_bonus=pierce_bonus)
         
         elif weapon.weapon_type == WeaponType.SHOTGUN:
-            spread_per_bullet = weapon.spread / max(1, weapon.bullet_count - 1)
+            bullet_count = weapon.bullet_count + extra_projectiles
+            spread_per_bullet = weapon.spread / max(1, bullet_count - 1)
             start_angle = -weapon.spread / 2
             
-            for i in range(weapon.bullet_count):
+            for i in range(bullet_count):
                 angle_offset = start_angle + (spread_per_bullet * i)
                 # Add some random variation
                 angle_offset += random.uniform(-3, 3)
-                self._spawn_projectile(entity, weapon, transform, angle_offset, is_player)
+                self._spawn_projectile(entity, weapon, transform, angle_offset, is_player,
+                                      size_mult=projectile_size_mult, pierce_bonus=pierce_bonus)
         
         elif weapon.weapon_type == WeaponType.BURST:
             weapon.burst_remaining = weapon.burst_count - 1
             weapon.burst_cooldown = weapon.burst_delay
-            self._spawn_projectile(entity, weapon, transform, 0, is_player)
+            self._spawn_projectile(entity, weapon, transform, 0, is_player,
+                                  size_mult=projectile_size_mult, pierce_bonus=pierce_bonus)
         
         elif weapon.weapon_type == WeaponType.RAPID:
             # Same as single but relies on high fire_rate
             angle_offset = random.uniform(-weapon.spread/2, weapon.spread/2)
-            self._spawn_projectile(entity, weapon, transform, angle_offset, is_player)
+            self._spawn_projectile(entity, weapon, transform, angle_offset, is_player,
+                                  size_mult=projectile_size_mult, pierce_bonus=pierce_bonus)
         
         elif weapon.weapon_type == WeaponType.ROCKET:
             # Slower, larger projectile
-            self._spawn_projectile(entity, weapon, transform, 0, is_player, size_mult=2.0)
+            self._spawn_projectile(entity, weapon, transform, 0, is_player, 
+                                   size_mult=2.0 * projectile_size_mult, pierce_bonus=pierce_bonus)
     
     def _fire_burst_shot(
         self,
@@ -179,7 +208,8 @@ class WeaponSystem(GameSystem):
         owner_transform: Transform,
         angle_offset: float,
         is_player: bool,
-        size_mult: float = 1.0
+        size_mult: float = 1.0,
+        pierce_bonus: int = 0
     ) -> Entity:
         """Spawn a projectile entity."""
         # Calculate spawn position (slightly in front of owner)
@@ -215,7 +245,8 @@ class WeaponSystem(GameSystem):
             owner_id=owner.id,
             damage=weapon.damage,
             lifetime=weapon.range / weapon.projectile_speed,
-            is_explosive=(weapon.weapon_type == WeaponType.ROCKET)
+            is_explosive=(weapon.weapon_type == WeaponType.ROCKET),
+            pierce_count=pierce_bonus
         )
         self.entities.add_component(proj_entity, proj)
         

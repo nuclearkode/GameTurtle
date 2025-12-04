@@ -3,11 +3,20 @@ Input System - Keyboard input handling and action mapping.
 
 Translates raw keyboard events into game actions.
 Keeps input handling separate from game logic.
+
+Updated Controls:
+- WASD: Omnidirectional movement (move in all directions)
+- Arrow keys: Aim direction (replacement for mouse)
+- Mouse: Aim direction (player faces cursor)
+- Space: Fire
+- R: Reload
+- Escape: Pause
 """
 
 from __future__ import annotations
 import turtle
-from typing import TYPE_CHECKING, Dict, Set, Callable
+import math
+from typing import TYPE_CHECKING, Dict, Set, Callable, Optional
 from enum import Enum, auto
 from dataclasses import dataclass, field
 
@@ -23,20 +32,34 @@ if TYPE_CHECKING:
 
 class GameAction(Enum):
     """High-level game actions."""
-    MOVE_UP = auto()
-    MOVE_DOWN = auto()
-    MOVE_LEFT = auto()
-    MOVE_RIGHT = auto()
+    # Omnidirectional movement (WASD)
+    MOVE_UP = auto()       # W - Move up
+    MOVE_DOWN = auto()     # S - Move down
+    MOVE_LEFT = auto()     # A - Move left
+    MOVE_RIGHT = auto()    # D - Move right
+    
+    # Aiming (Arrow keys as mouse replacement)
+    AIM_UP = auto()
+    AIM_DOWN = auto()
+    AIM_LEFT = auto()
+    AIM_RIGHT = auto()
+    
+    # Legacy rotation (still available)
     ROTATE_LEFT = auto()
     ROTATE_RIGHT = auto()
+    
+    # Combat
     FIRE = auto()
     RELOAD = auto()
+    DASH = auto()  # For double jump/dash upgrade
+    
+    # Menu
     PAUSE = auto()
     QUIT = auto()
     CONFIRM = auto()
     CANCEL = auto()
     
-    # Alternative movement (WASD for strafe-based movement)
+    # Alternative movement (strafing)
     STRAFE_LEFT = auto()
     STRAFE_RIGHT = auto()
 
@@ -53,6 +76,8 @@ class InputState:
         mouse_x: Mouse X position (if using mouse)
         mouse_y: Mouse Y position (if using mouse)
         mouse_clicked: Whether mouse was clicked this frame
+        aim_angle: Current aim angle (from arrow keys or mouse)
+        using_mouse_aim: Whether mouse is being used for aiming
     """
     actions_held: Set[GameAction] = field(default_factory=set)
     actions_pressed: Set[GameAction] = field(default_factory=set)
@@ -60,6 +85,10 @@ class InputState:
     mouse_x: float = 0.0
     mouse_y: float = 0.0
     mouse_clicked: bool = False
+    aim_angle: float = 90.0  # Default facing up
+    using_mouse_aim: bool = False
+    arrow_aim_x: float = 0.0  # Arrow key aim direction
+    arrow_aim_y: float = 0.0
     
     def is_action_held(self, action: GameAction) -> bool:
         """Check if an action is currently being held."""
@@ -82,43 +111,46 @@ class InputState:
 
 class InputSystem(GameSystem):
     """
-    Handles keyboard input and translates to game actions.
+    Handles keyboard and mouse input, translates to game actions.
     
     Features:
+    - WASD for omnidirectional movement (move in any direction)
+    - Mouse for aiming (player faces cursor position)
+    - Arrow keys as mouse replacement for aiming
     - Key-to-action mapping (configurable)
     - Held, pressed, and released state tracking
     - Applies input to player entity
-    - Support for multiple control schemes
     
-    Default Controls:
-    - Arrow keys: Move/Rotate
-    - WASD: Move/Rotate
+    Control Scheme:
+    - W/A/S/D: Move up/left/down/right (omnidirectional)
+    - Arrow keys: Aim direction (alternative to mouse)
+    - Mouse: Aim direction (player faces cursor)
     - Space: Fire
     - R: Reload
+    - Shift: Dash (if upgrade available)
     - Escape: Pause
+    - Q: Quit
     """
     
-    # Default key bindings
+    # Default key bindings - WASD for omnidirectional movement
     DEFAULT_BINDINGS = {
-        # Arrow keys
-        "Up": GameAction.MOVE_UP,
-        "Down": GameAction.MOVE_DOWN,
-        "Left": GameAction.ROTATE_LEFT,
-        "Right": GameAction.ROTATE_RIGHT,
-        
-        # WASD
+        # WASD for movement (omnidirectional)
         "w": GameAction.MOVE_UP,
         "s": GameAction.MOVE_DOWN,
-        "a": GameAction.ROTATE_LEFT,
-        "d": GameAction.ROTATE_RIGHT,
+        "a": GameAction.MOVE_LEFT,
+        "d": GameAction.MOVE_RIGHT,
         
-        # Alternative: WASD for strafing
-        # "a": GameAction.STRAFE_LEFT,
-        # "d": GameAction.STRAFE_RIGHT,
+        # Arrow keys for aiming (mouse replacement)
+        "Up": GameAction.AIM_UP,
+        "Down": GameAction.AIM_DOWN,
+        "Left": GameAction.AIM_LEFT,
+        "Right": GameAction.AIM_RIGHT,
         
         # Actions
         "space": GameAction.FIRE,
         "r": GameAction.RELOAD,
+        "Shift_L": GameAction.DASH,
+        "Shift_R": GameAction.DASH,
         "Escape": GameAction.PAUSE,
         "Return": GameAction.CONFIRM,
         "q": GameAction.QUIT,
@@ -138,6 +170,14 @@ class InputSystem(GameSystem):
         
         # Track raw key states
         self._keys_down: Set[str] = set()
+        
+        # Mouse tracking
+        self._mouse_enabled = True
+        self._last_mouse_x = 0.0
+        self._last_mouse_y = 0.0
+        
+        # Arrow key aim smoothing
+        self._arrow_aim_speed = 180.0  # Degrees per second
     
     def initialize(self) -> None:
         """Set up input bindings."""
@@ -147,6 +187,46 @@ class InputSystem(GameSystem):
         
         # Set up keyboard listeners
         self.screen.listen()
+        
+        # Set up mouse tracking
+        self._setup_mouse_tracking()
+    
+    def _setup_mouse_tracking(self) -> None:
+        """Set up mouse motion and click tracking."""
+        try:
+            # Track mouse motion
+            self.screen.cv.bind('<Motion>', self._on_mouse_motion)
+            
+            # Track mouse clicks
+            self.screen.onclick(self._on_mouse_click)
+        except Exception:
+            # Mouse tracking may not be available in all environments
+            self._mouse_enabled = False
+    
+    def _on_mouse_motion(self, event) -> None:
+        """Handle mouse motion event."""
+        try:
+            # Get canvas position and convert to turtle coordinates
+            canvas = self.screen.cv
+            x = event.x - canvas.winfo_width() / 2
+            y = canvas.winfo_height() / 2 - event.y
+            
+            self.state.mouse_x = x
+            self.state.mouse_y = y
+            self._last_mouse_x = x
+            self._last_mouse_y = y
+            
+            # Mark that mouse is being used for aiming
+            if abs(x - self._last_mouse_x) > 5 or abs(y - self._last_mouse_y) > 5:
+                self.state.using_mouse_aim = True
+        except Exception:
+            pass
+    
+    def _on_mouse_click(self, x: float, y: float) -> None:
+        """Handle mouse click event."""
+        self.state.mouse_clicked = True
+        self.state.mouse_x = x
+        self.state.mouse_y = y
     
     def bind_key(self, key: str, action: GameAction) -> None:
         """Bind a key to an action."""
@@ -189,6 +269,11 @@ class InputSystem(GameSystem):
                 self.state.actions_held.add(action)
                 self.state.actions_pressed.add(action)
                 
+                # If arrow key is pressed, switch to arrow aiming
+                if action in (GameAction.AIM_UP, GameAction.AIM_DOWN, 
+                              GameAction.AIM_LEFT, GameAction.AIM_RIGHT):
+                    self.state.using_mouse_aim = False
+                
                 # Call action callback if registered
                 if action in self._action_callbacks:
                     self._action_callbacks[action]()
@@ -229,33 +314,77 @@ class InputSystem(GameSystem):
             self.state.clear_frame_state()
             return
         
-        # Movement
+        # Get movement speed
         move_speed = physics.acceleration if physics else 500.0
+        
+        # === OMNIDIRECTIONAL MOVEMENT (WASD) ===
+        # Movement is independent of facing direction
+        accel_x = 0.0
+        accel_y = 0.0
+        
+        if self.state.is_action_held(GameAction.MOVE_UP):
+            accel_y += move_speed
+        if self.state.is_action_held(GameAction.MOVE_DOWN):
+            accel_y -= move_speed
+        if self.state.is_action_held(GameAction.MOVE_LEFT):
+            accel_x -= move_speed
+        if self.state.is_action_held(GameAction.MOVE_RIGHT):
+            accel_x += move_speed
+        
+        # Normalize diagonal movement
+        if accel_x != 0 and accel_y != 0:
+            magnitude = math.sqrt(accel_x**2 + accel_y**2)
+            accel_x = (accel_x / magnitude) * move_speed
+            accel_y = (accel_y / magnitude) * move_speed
+        
+        # Apply movement
+        if physics:
+            physics.accel_x = accel_x
+            physics.accel_y = accel_y
+        else:
+            velocity.vx = accel_x
+            velocity.vy = accel_y
+        
+        # === AIMING (Mouse or Arrow Keys) ===
+        if self._mouse_enabled and self.state.using_mouse_aim:
+            # Mouse aiming - face the cursor
+            target_angle = self._calculate_mouse_aim_angle(transform)
+            if target_angle is not None:
+                transform.angle = target_angle
+        else:
+            # Arrow key aiming
+            aim_x = 0.0
+            aim_y = 0.0
+            
+            if self.state.is_action_held(GameAction.AIM_UP):
+                aim_y += 1.0
+            if self.state.is_action_held(GameAction.AIM_DOWN):
+                aim_y -= 1.0
+            if self.state.is_action_held(GameAction.AIM_LEFT):
+                aim_x -= 1.0
+            if self.state.is_action_held(GameAction.AIM_RIGHT):
+                aim_x += 1.0
+            
+            # If arrow keys are held, update aim angle
+            if aim_x != 0 or aim_y != 0:
+                target_angle = math.degrees(math.atan2(aim_y, aim_x))
+                
+                # Smooth rotation towards target
+                current = transform.angle
+                diff = self._angle_difference(current, target_angle)
+                
+                max_rotation = self._arrow_aim_speed * dt
+                if abs(diff) <= max_rotation:
+                    transform.angle = target_angle
+                else:
+                    transform.angle += max_rotation if diff > 0 else -max_rotation
+                
+                # Keep angle in 0-360 range
+                transform.angle = transform.angle % 360
+        
+        # === LEGACY ROTATION (if needed) ===
         turn_speed = physics.angular_acceleration if physics else 360.0
         
-        # Forward/backward movement
-        if self.state.is_action_held(GameAction.MOVE_UP):
-            fx, fy = transform.forward_vector()
-            if physics:
-                physics.accel_x = fx * move_speed
-                physics.accel_y = fy * move_speed
-            else:
-                velocity.vx = fx * move_speed
-                velocity.vy = fy * move_speed
-        elif self.state.is_action_held(GameAction.MOVE_DOWN):
-            fx, fy = transform.forward_vector()
-            if physics:
-                physics.accel_x = -fx * move_speed * 0.5  # Slower backward
-                physics.accel_y = -fy * move_speed * 0.5
-            else:
-                velocity.vx = -fx * move_speed * 0.5
-                velocity.vy = -fy * move_speed * 0.5
-        else:
-            if physics:
-                physics.accel_x = 0
-                physics.accel_y = 0
-        
-        # Rotation
         if self.state.is_action_held(GameAction.ROTATE_LEFT):
             if physics:
                 physics.angular_accel = turn_speed
@@ -271,27 +400,41 @@ class InputSystem(GameSystem):
                 physics.angular_accel = 0
             velocity.angular = 0
         
-        # Strafing (alternative movement)
-        if self.state.is_action_held(GameAction.STRAFE_LEFT):
-            rx, ry = transform.right_vector()
-            if physics:
-                physics.accel_x -= rx * move_speed * 0.7
-                physics.accel_y -= ry * move_speed * 0.7
-        if self.state.is_action_held(GameAction.STRAFE_RIGHT):
-            rx, ry = transform.right_vector()
-            if physics:
-                physics.accel_x += rx * move_speed * 0.7
-                physics.accel_y += ry * move_speed * 0.7
-        
-        # Firing
+        # === COMBAT ===
         if weapon:
-            weapon.is_firing = self.state.is_action_held(GameAction.FIRE)
+            # Fire on space or mouse click
+            weapon.is_firing = (
+                self.state.is_action_held(GameAction.FIRE) or 
+                self.state.mouse_clicked
+            )
             
             if self.state.is_action_pressed(GameAction.RELOAD):
                 weapon.start_reload()
         
         # Clear per-frame state at end
         self.state.clear_frame_state()
+    
+    def _calculate_mouse_aim_angle(self, transform: Transform) -> Optional[float]:
+        """Calculate the angle to face the mouse cursor."""
+        try:
+            dx = self.state.mouse_x - transform.x
+            dy = self.state.mouse_y - transform.y
+            
+            # Only update if mouse is far enough from player
+            if abs(dx) > 5 or abs(dy) > 5:
+                return math.degrees(math.atan2(dy, dx))
+        except Exception:
+            pass
+        return None
+    
+    def _angle_difference(self, current: float, target: float) -> float:
+        """Calculate the shortest angle difference between two angles."""
+        diff = (target - current + 180) % 360 - 180
+        return diff
+    
+    def enable_mouse(self, enabled: bool = True) -> None:
+        """Enable or disable mouse input."""
+        self._mouse_enabled = enabled
     
     def cleanup(self) -> None:
         """Unbind all keys."""
@@ -301,3 +444,9 @@ class InputSystem(GameSystem):
                 self.screen.onkeyrelease(None, key)
             except:
                 pass
+        
+        # Clean up mouse bindings
+        try:
+            self.screen.cv.unbind('<Motion>')
+        except:
+            pass

@@ -13,6 +13,7 @@ from .health_system import HealthSystem
 from .wave_system import WaveSystem
 from .status_system import StatusEffectSystem
 from .pathfinding_system import PathfindingSystem
+from .upgrade_system import UpgradeSystem
 
 # Systems requiring turtle/tkinter
 try:
@@ -35,4 +36,5 @@ __all__ = [
     "WaveSystem",
     "StatusEffectSystem",
     "PathfindingSystem",
+    "UpgradeSystem",
 ]
