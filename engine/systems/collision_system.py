@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from ..core.entity import Entity
 
 
+def _is_valid_float(value: float) -> bool:
+    """Check if a float is valid (not NaN or infinity)."""
+    return math.isfinite(value)
+
+
+def _sanitize_float(value: float, default: float = 0.0) -> float:
+    """Return the value if valid, otherwise return default."""
+    return value if _is_valid_float(value) else default
+
+
 @dataclass
 class CollisionPair:
     """Data about a collision between two entities."""
@@ -118,12 +128,17 @@ class CollisionSystem(GameSystem):
         
         collidable_entities = list(self.entities.get_entities_with(Transform, Collider))
         
-        # Insert all entities into spatial grid
+        # Insert all entities into spatial grid (skip invalid positions)
         for entity in collidable_entities:
             transform = self.entities.get_component(entity, Transform)
             collider = self.entities.get_component(entity, Collider)
             if transform and collider:
+                # Skip entities with invalid positions
+                if not _is_valid_float(transform.x) or not _is_valid_float(transform.y):
+                    continue
                 radius = self._get_effective_radius(collider)
+                if not _is_valid_float(radius) or radius <= 0:
+                    radius = 10.0  # Default safe radius
                 self.spatial_grid.insert(entity, transform.x, transform.y, radius)
         
         # Broad phase + narrow phase
@@ -295,7 +310,12 @@ class CollisionSystem(GameSystem):
         cx: float, cy: float, cr: float,
         bx: float, by: float, bw: float, bh: float
     ) -> CollisionPair | None:
-        """Test circle-AABB collision."""
+        """Test circle-AABB collision.
+        
+        Normal convention: points FROM entity_a (circle) TOWARD entity_b (AABB).
+        In separation, A moves by: A.pos -= normal * penetration, 
+        which pushes A AWAY from B.
+        """
         bhw, bhh = bw / 2, bh / 2
         
         # Find closest point on AABB to circle center
@@ -306,15 +326,53 @@ class CollisionSystem(GameSystem):
         dy = cy - closest_y
         dist_sq = dx * dx + dy * dy
         
+        # Check if circle center is inside AABB (dist_sq == 0)
+        if dist_sq < 0.0001:  # Circle center is inside AABB
+            # Find minimum distance to push circle out to nearest edge
+            dist_to_left = cx - (bx - bhw)
+            dist_to_right = (bx + bhw) - cx
+            dist_to_bottom = cy - (by - bhh)
+            dist_to_top = (by + bhh) - cy
+            
+            min_dist = min(dist_to_left, dist_to_right, dist_to_bottom, dist_to_top)
+            
+            # Normal points from circle TOWARD the AABB interior (from A to B)
+            # Separation: A.x -= nx * pen pushes circle OUT through nearest edge
+            if min_dist == dist_to_left:
+                # Exit left: circle moves left (-x), so normal points right (+x)
+                nx, ny = 1.0, 0.0
+                penetration = dist_to_left + cr
+            elif min_dist == dist_to_right:
+                # Exit right: circle moves right (+x), so normal points left (-x)
+                nx, ny = -1.0, 0.0
+                penetration = dist_to_right + cr
+            elif min_dist == dist_to_bottom:
+                # Exit down: circle moves down (-y), so normal points up (+y)
+                nx, ny = 0.0, 1.0
+                penetration = dist_to_bottom + cr
+            else:
+                # Exit up: circle moves up (+y), so normal points down (-y)
+                nx, ny = 0.0, -1.0
+                penetration = dist_to_top + cr
+            
+            return CollisionPair(
+                entity_a=circle_entity,
+                entity_b=aabb_entity,
+                normal_x=nx,
+                normal_y=ny,
+                penetration=penetration
+            )
+        
         if dist_sq >= cr * cr:
             return None
         
-        dist = math.sqrt(dist_sq) if dist_sq > 0 else 0.001
+        dist = math.sqrt(dist_sq)
         penetration = cr - dist
         
-        # Normal from AABB to circle
-        nx = dx / dist if dist > 0 else 1.0
-        ny = dy / dist if dist > 0 else 0.0
+        # Normal from circle to closest point on AABB (from A toward B)
+        # dx, dy point from closest_point toward circle, so negate for A->B direction
+        nx = -dx / dist
+        ny = -dy / dist
         
         return CollisionPair(
             entity_a=circle_entity,
@@ -367,25 +425,47 @@ class CollisionSystem(GameSystem):
         if not transform_a or not transform_b:
             return
         
+        # Validate collision data
+        if not _is_valid_float(pair.normal_x) or not _is_valid_float(pair.normal_y):
+            return
+        if not _is_valid_float(pair.penetration) or pair.penetration <= 0:
+            return
+        
+        # Clamp penetration to prevent huge jumps
+        penetration = min(pair.penetration, 100.0)
+        
         # Determine how much each entity moves
         if collider_a.is_static and collider_b.is_static:
             return  # Neither can move
         
         if collider_a.is_static:
             # Only B moves
-            transform_b.x += pair.normal_x * pair.penetration
-            transform_b.y += pair.normal_y * pair.penetration
+            new_x = _sanitize_float(transform_b.x) + pair.normal_x * penetration
+            new_y = _sanitize_float(transform_b.y) + pair.normal_y * penetration
+            if _is_valid_float(new_x) and _is_valid_float(new_y):
+                transform_b.x = new_x
+                transform_b.y = new_y
         elif collider_b.is_static:
             # Only A moves
-            transform_a.x -= pair.normal_x * pair.penetration
-            transform_a.y -= pair.normal_y * pair.penetration
+            new_x = _sanitize_float(transform_a.x) - pair.normal_x * penetration
+            new_y = _sanitize_float(transform_a.y) - pair.normal_y * penetration
+            if _is_valid_float(new_x) and _is_valid_float(new_y):
+                transform_a.x = new_x
+                transform_a.y = new_y
         else:
             # Both move equally
-            half_pen = pair.penetration / 2
-            transform_a.x -= pair.normal_x * half_pen
-            transform_a.y -= pair.normal_y * half_pen
-            transform_b.x += pair.normal_x * half_pen
-            transform_b.y += pair.normal_y * half_pen
+            half_pen = penetration / 2
+            new_ax = _sanitize_float(transform_a.x) - pair.normal_x * half_pen
+            new_ay = _sanitize_float(transform_a.y) - pair.normal_y * half_pen
+            new_bx = _sanitize_float(transform_b.x) + pair.normal_x * half_pen
+            new_by = _sanitize_float(transform_b.y) + pair.normal_y * half_pen
+            
+            if _is_valid_float(new_ax) and _is_valid_float(new_ay):
+                transform_a.x = new_ax
+                transform_a.y = new_ay
+            if _is_valid_float(new_bx) and _is_valid_float(new_by):
+                transform_b.x = new_bx
+                transform_b.y = new_by
         
         # Apply velocity response (bounce)
         self._apply_bounce(pair, collider_a, collider_b)

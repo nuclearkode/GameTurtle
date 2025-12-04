@@ -180,39 +180,63 @@ class GameLoop:
         dt = current_time - self._last_frame_time
         self._last_frame_time = current_time
         
-        # Clamp dt to prevent spiral of death
+        # Clamp dt to prevent spiral of death and validate
+        if not isinstance(dt, (int, float)) or dt < 0 or dt != dt:  # NaN check
+            dt = self.target_dt
         dt = min(dt, 0.1)  # Max 100ms per frame
         
         # Update frame stats
-        self._update_stats(dt)
+        try:
+            self._update_stats(dt)
+        except Exception:
+            pass
         
         # Skip update if paused (but still render)
         if self.state == GameState.RUNNING:
             # Update systems
             if self.system_manager:
-                self.system_manager.update(dt)
+                try:
+                    self.system_manager.update(dt)
+                except Exception as e:
+                    import sys
+                    print(f"[GameLoop] System update error: {e}", file=sys.stderr)
             
             # Custom update callbacks
             for callback in self._on_update_callbacks:
-                callback(dt)
+                try:
+                    callback(dt)
+                except Exception:
+                    pass  # Don't let callback errors crash the game
             
             # Flush entity destruction
             if self.entity_manager:
-                self.entity_manager.flush_destroyed()
+                try:
+                    self.entity_manager.flush_destroyed()
+                except Exception:
+                    pass
             
             # Flush deferred events
             if self.event_bus:
-                self.event_bus.flush_events()
+                try:
+                    self.event_bus.flush_events()
+                except Exception:
+                    pass
         
         # Update screen (always, even when paused)
         if self.screen:
-            self.screen.update()
+            try:
+                self.screen.update()
+            except Exception:
+                pass  # Screen may be closed
         
         # Frame rate limiting
-        elapsed = time.time() - current_time
-        sleep_time = self.target_dt - elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        try:
+            elapsed = time.time() - current_time
+            sleep_time = self.target_dt - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        except Exception:
+            pass
     
     def _update_stats(self, dt: float) -> None:
         """Update frame statistics."""

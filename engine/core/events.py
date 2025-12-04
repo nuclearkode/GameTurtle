@@ -166,10 +166,14 @@ class EventBus:
         Fire an event immediately.
         
         All subscribed handlers are called synchronously in priority order.
+        Exceptions in handlers are caught and logged to prevent cascade failures.
         
         Args:
             event: The event instance to emit
         """
+        if event is None:
+            return
+            
         event_type = type(event)
         handlers = self._handlers.get(event_type, [])
         
@@ -184,13 +188,19 @@ class EventBus:
         # Call handlers, collecting one-shots for removal
         to_remove = []
         for priority, handler, one_shot in handlers:
-            handler(event)
+            try:
+                handler(event)
+            except Exception as e:
+                # Log error but continue processing other handlers
+                import sys
+                print(f"[EventBus] Error in handler for {event_type.__name__}: {e}", file=sys.stderr)
             if one_shot:
                 to_remove.append((priority, handler, one_shot))
         
         # Remove one-shot handlers
         for entry in to_remove:
-            handlers.remove(entry)
+            if entry in handlers:
+                handlers.remove(entry)
     
     def emit_deferred(self, event: Event) -> None:
         """

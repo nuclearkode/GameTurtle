@@ -39,45 +39,79 @@ class WeaponSystem(GameSystem):
     
     def update(self, dt: float) -> None:
         """Process weapons and projectiles."""
+        import math
+        
+        # Validate dt
+        if not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0:
+            dt = 0.016
+        dt = min(dt, 0.1)  # Cap to prevent huge jumps
+        
         # Update weapons
-        for entity in self.entities.get_entities_with(Weapon, Transform):
-            weapon = self.entities.get_component(entity, Weapon)
-            transform = self.entities.get_component(entity, Transform)
+        try:
+            weapon_entities = list(self.entities.get_entities_with(Weapon, Transform))
+        except Exception:
+            weapon_entities = []
             
-            if not weapon or not transform:
+        for entity in weapon_entities:
+            try:
+                if not self.entities.is_alive(entity):
+                    continue
+                    
+                weapon = self.entities.get_component(entity, Weapon)
+                transform = self.entities.get_component(entity, Transform)
+                
+                if not weapon or not transform:
+                    continue
+                
+                # Validate transform
+                if not math.isfinite(transform.x) or not math.isfinite(transform.y):
+                    continue
+                
+                # Update cooldowns
+                if weapon.cooldown > 0:
+                    weapon.cooldown -= dt
+                
+                if weapon.burst_cooldown > 0:
+                    weapon.burst_cooldown -= dt
+                
+                # Handle reload
+                if weapon.is_reloading:
+                    weapon.reload_timer -= dt
+                    if weapon.reload_timer <= 0:
+                        weapon.ammo = weapon.max_ammo
+                        weapon.is_reloading = False
+                
+                # Handle firing
+                if weapon.is_firing and weapon.can_fire:
+                    self._fire_weapon(entity, weapon, transform)
+                
+                # Handle burst continuation
+                if weapon.burst_remaining > 0 and weapon.burst_cooldown <= 0:
+                    self._fire_burst_shot(entity, weapon, transform)
+            except Exception:
+                # Continue processing other weapons
                 continue
-            
-            # Update cooldowns
-            if weapon.cooldown > 0:
-                weapon.cooldown -= dt
-            
-            if weapon.burst_cooldown > 0:
-                weapon.burst_cooldown -= dt
-            
-            # Handle reload
-            if weapon.is_reloading:
-                weapon.reload_timer -= dt
-                if weapon.reload_timer <= 0:
-                    weapon.ammo = weapon.max_ammo
-                    weapon.is_reloading = False
-            
-            # Handle firing
-            if weapon.is_firing and weapon.can_fire:
-                self._fire_weapon(entity, weapon, transform)
-            
-            # Handle burst continuation
-            if weapon.burst_remaining > 0 and weapon.burst_cooldown <= 0:
-                self._fire_burst_shot(entity, weapon, transform)
         
         # Update projectiles
-        for entity in self.entities.get_entities_with(Projectile):
-            projectile = self.entities.get_component(entity, Projectile)
+        try:
+            projectile_entities = list(self.entities.get_entities_with(Projectile))
+        except Exception:
+            projectile_entities = []
             
-            if projectile:
-                projectile.time_alive += dt
+        for entity in projectile_entities:
+            try:
+                if not self.entities.is_alive(entity):
+                    continue
+                    
+                projectile = self.entities.get_component(entity, Projectile)
                 
-                if projectile.is_expired:
-                    self.entities.destroy_entity(entity)
+                if projectile:
+                    projectile.time_alive += dt
+                    
+                    if projectile.is_expired:
+                        self.entities.destroy_entity(entity)
+            except Exception:
+                continue
     
     def _fire_weapon(
         self,

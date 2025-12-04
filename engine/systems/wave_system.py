@@ -154,15 +154,21 @@ class WaveSystem(GameSystem):
     
     def _on_enemy_death(self, event: DeathEvent) -> None:
         """Handle enemy death."""
-        entity = next((e for e in self.entities if e.id == event.entity_id), None)
+        if not event or not event.entity_id:
+            return
+            
+        # Use safe entity lookup
+        entity = self.entities.get_entity_by_id(event.entity_id)
         if not entity:
             return
         
         enemy_tag = self.entities.get_component(entity, EnemyTag)
         if enemy_tag:
-            self.enemies_remaining -= 1
+            self.enemies_remaining = max(0, self.enemies_remaining - 1)
             self.kills += 1
-            self.score += enemy_tag.point_value
+            # Validate point value
+            if isinstance(enemy_tag.point_value, (int, float)) and enemy_tag.point_value > 0:
+                self.score += int(enemy_tag.point_value)
     
     def update(self, dt: float) -> None:
         """Update wave state."""
@@ -268,11 +274,22 @@ class WaveSystem(GameSystem):
             self.spawn_timer = 0.0
             config = self.spawn_queue.pop(0)
             
-            # Find spawn position
-            x, y = self._get_spawn_position()
-            
-            # Spawn enemy (spawn_fn is already a bound method, so don't pass self)
-            config.spawn_fn(x, y)
+            try:
+                # Find spawn position
+                x, y = self._get_spawn_position()
+                
+                # Validate spawn position
+                import math
+                if not math.isfinite(x) or not math.isfinite(y):
+                    x, y = 0.0, self.arena_height / 2 - 50
+                
+                # Spawn enemy (spawn_fn is already a bound method, so don't pass self)
+                if config.spawn_fn:
+                    config.spawn_fn(x, y)
+            except Exception as e:
+                # Log error but continue spawning
+                import sys
+                print(f"[WaveSystem] Error spawning enemy: {e}", file=sys.stderr)
         
         if not self.spawn_queue:
             self.state = WaveState.ACTIVE

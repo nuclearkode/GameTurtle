@@ -17,6 +17,23 @@ if TYPE_CHECKING:
     from ..core.entity import Entity
 
 
+def _is_valid_float(value: float) -> bool:
+    """Check if a float is valid (not NaN or infinity)."""
+    return math.isfinite(value)
+
+
+def _clamp_float(value: float, min_val: float, max_val: float) -> float:
+    """Clamp a float to a range, returning 0 if invalid."""
+    if not _is_valid_float(value):
+        return 0.0
+    return max(min_val, min(max_val, value))
+
+
+def _sanitize_float(value: float, default: float = 0.0) -> float:
+    """Return the value if valid, otherwise return default."""
+    return value if _is_valid_float(value) else default
+
+
 class PhysicsSystem(GameSystem):
     """
     Handles movement and physics simulation.
@@ -80,10 +97,17 @@ class PhysicsSystem(GameSystem):
     ) -> None:
         """Full physics processing with acceleration, friction, drag."""
         
-        # Apply accumulated acceleration
-        velocity.vx += physics.accel_x * dt
-        velocity.vy += physics.accel_y * dt
-        velocity.angular += physics.angular_accel * dt
+        # Sanitize dt to prevent physics explosion
+        dt = _clamp_float(dt, 0.0, 0.1)
+        
+        # Apply accumulated acceleration (sanitize values)
+        accel_x = _sanitize_float(physics.accel_x)
+        accel_y = _sanitize_float(physics.accel_y)
+        angular_accel = _sanitize_float(physics.angular_accel)
+        
+        velocity.vx = _sanitize_float(velocity.vx) + accel_x * dt
+        velocity.vy = _sanitize_float(velocity.vy) + accel_y * dt
+        velocity.angular = _sanitize_float(velocity.angular) + angular_accel * dt
         
         # Apply friction (ground contact)
         if physics.friction > 0:
@@ -93,14 +117,14 @@ class PhysicsSystem(GameSystem):
             velocity.vy *= friction_factor
         
         # Apply drag (air resistance)
-        if physics.drag < 1.0:
+        if physics.drag < 1.0 and physics.drag > 0:
             drag_factor = physics.drag ** dt
             velocity.vx *= drag_factor
             velocity.vy *= drag_factor
         
         # Clamp to max speed
         speed = velocity.speed
-        if speed > physics.max_speed:
+        if _is_valid_float(speed) and speed > physics.max_speed and speed > 0:
             factor = physics.max_speed / speed
             velocity.vx *= factor
             velocity.vy *= factor
@@ -109,13 +133,22 @@ class PhysicsSystem(GameSystem):
         if abs(velocity.angular) > physics.max_angular_speed:
             velocity.angular = math.copysign(physics.max_angular_speed, velocity.angular)
         
+        # Final sanitization of velocity
+        velocity.vx = _clamp_float(velocity.vx, -10000, 10000)
+        velocity.vy = _clamp_float(velocity.vy, -10000, 10000)
+        velocity.angular = _clamp_float(velocity.angular, -3600, 3600)
+        
         # Integrate position
         transform.x += velocity.vx * dt
         transform.y += velocity.vy * dt
         transform.angle += velocity.angular * dt
         
+        # Sanitize final position
+        transform.x = _clamp_float(transform.x, -10000, 10000)
+        transform.y = _clamp_float(transform.y, -10000, 10000)
+        
         # Normalize angle to [0, 360)
-        transform.angle = transform.angle % 360
+        transform.angle = _sanitize_float(transform.angle) % 360
         
         # Clear forces for next frame
         physics.clear_forces()
@@ -127,9 +160,19 @@ class PhysicsSystem(GameSystem):
         dt: float
     ) -> None:
         """Simple velocity integration without physics component."""
-        transform.x += velocity.vx * dt
-        transform.y += velocity.vy * dt
-        transform.angle += velocity.angular * dt
+        # Sanitize inputs
+        dt = _clamp_float(dt, 0.0, 0.1)
+        vx = _sanitize_float(velocity.vx)
+        vy = _sanitize_float(velocity.vy)
+        angular = _sanitize_float(velocity.angular)
+        
+        transform.x = _sanitize_float(transform.x) + vx * dt
+        transform.y = _sanitize_float(transform.y) + vy * dt
+        transform.angle = _sanitize_float(transform.angle) + angular * dt
+        
+        # Clamp position to reasonable bounds
+        transform.x = _clamp_float(transform.x, -10000, 10000)
+        transform.y = _clamp_float(transform.y, -10000, 10000)
         transform.angle = transform.angle % 360
     
     def _enforce_bounds(

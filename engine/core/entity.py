@@ -211,33 +211,56 @@ class EntityManager:
         
         return component
     
-    def get_component(self, entity: Entity, component_type: Type[C]) -> Optional[C]:
+    def get_component(self, entity: Optional[Entity], component_type: Type[C]) -> Optional[C]:
         """
         Get a component from an entity.
         
         Args:
-            entity: The entity
+            entity: The entity (can be None for safety)
             component_type: The type of component to get
             
         Returns:
-            The component instance, or None if not found
+            The component instance, or None if not found or entity is None
         """
+        if entity is None:
+            return None
         if entity.id not in self._components:
             return None
         return self._components[entity.id].get(component_type)
     
-    def has_component(self, entity: Entity, component_type: Type) -> bool:
+    def has_component(self, entity: Optional[Entity], component_type: Type) -> bool:
         """Check if an entity has a specific component type."""
+        if entity is None:
+            return False
         if entity.id not in self._components:
             return False
         return component_type in self._components[entity.id]
     
-    def has_components(self, entity: Entity, *component_types: Type) -> bool:
+    def has_components(self, entity: Optional[Entity], *component_types: Type) -> bool:
         """Check if an entity has ALL specified component types."""
+        if entity is None:
+            return False
         if entity.id not in self._components:
             return False
         entity_components = self._components[entity.id]
         return all(ct in entity_components for ct in component_types)
+    
+    def get_entity_by_id(self, entity_id: str) -> Optional[Entity]:
+        """
+        Safely get an entity by its ID.
+        
+        Args:
+            entity_id: The entity's ID string
+            
+        Returns:
+            The Entity if found and alive, None otherwise
+        """
+        if not entity_id:
+            return None
+        for entity in self._entities:
+            if entity.id == entity_id and entity not in self._pending_destroy:
+                return entity
+        return None
     
     def get_entities_with(self, *component_types: Type) -> Iterator[Entity]:
         """
