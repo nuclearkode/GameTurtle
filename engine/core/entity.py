@@ -253,7 +253,8 @@ class EntityManager:
             Entities that have all specified components
         """
         if not component_types:
-            yield from self._entities
+            # Iterate over a copy to prevent RuntimeError if set changes during iteration
+            yield from list(self._entities)
             return
         
         # Start with the smallest set for efficiency
@@ -270,7 +271,8 @@ class EntityManager:
             result &= s
         
         # Convert IDs back to entities
-        for entity in self._entities:
+        # Iterate over a copy to prevent RuntimeError if set changes during iteration
+        for entity in list(self._entities):
             if entity.id in result:
                 yield entity
     
@@ -297,7 +299,8 @@ class EntityManager:
     def get_entities_with_tag(self, tag: str) -> Iterator[Entity]:
         """Get all entities with a specific tag."""
         if tag in self._tags:
-            for entity in self._tags[tag]:
+            # Iterate over a copy to prevent RuntimeError if set changes during iteration
+            for entity in list(self._tags[tag]):
                 if entity in self._entities:
                     yield entity
     
@@ -321,7 +324,8 @@ class EntityManager:
     
     def __iter__(self) -> Iterator[Entity]:
         """Iterate over all active entities."""
-        return iter(self._entities)
+        # Return iterator over a copy to prevent RuntimeError if set changes during iteration
+        return iter(list(self._entities))
     
     def __contains__(self, entity: Entity) -> bool:
         """Check if entity is managed by this manager."""
