@@ -12,12 +12,21 @@ python run_game.py
 
 | Key | Action |
 |-----|--------|
-| W / ↑ | Move Forward |
-| S / ↓ | Move Backward |
-| A / ← | Turn Left |
-| D / → | Turn Right |
-| Space | Fire |
+| W | Move Up |
+| A | Move Left |
+| S | Move Down |
+| D | Move Right |
+| Arrow Keys | Aim Direction |
+| Mouse | Aim Direction (alternative) |
+| Space / Click | Fire |
+| R | Reload |
+| Escape | Pause Menu |
 | Q | Quit |
+
+### Movement System
+- **WASD**: Omnidirectional movement - move in any direction regardless of facing
+- **Arrow Keys or Mouse**: Controls aim/facing direction independently from movement
+- This twin-stick style control allows strafing while shooting in any direction!
 
 ## 🏗️ Architecture Overview
 
@@ -50,19 +59,22 @@ This project implements a **mini game engine** on top of Python's turtle library
 │   │   ├── weapon.py         # Weapons, projectiles
 │   │   ├── ai.py             # AI behavior configuration
 │   │   ├── status.py         # Status effects (buffs/debuffs)
-│   │   └── tags.py           # Marker components
+│   │   ├── tags.py           # Marker components
+│   │   └── upgrades.py       # Permanent upgrade system (NEW)
 │   ├── systems/              # Game logic systems
 │   │   ├── physics_system.py    # Movement, forces, bounds
 │   │   ├── collision_system.py  # Spatial partitioning, detection
 │   │   ├── render_system.py     # Turtle graphics rendering
-│   │   ├── input_system.py      # Keyboard input handling
+│   │   ├── input_system.py      # Keyboard/mouse input + aiming
 │   │   ├── ai_system.py         # Enemy AI behaviors
 │   │   ├── weapon_system.py     # Firing, projectiles
-│   │   ├── health_system.py     # Damage, death, shields
+│   │   ├── health_system.py     # Damage, death, shields, evasion
 │   │   ├── wave_system.py       # Wave spawning, difficulty
 │   │   ├── status_system.py     # Status effect processing
-│   │   └── pathfinding_system.py # A* grid pathfinding
+│   │   ├── pathfinding_system.py # A* grid pathfinding
+│   │   └── upgrade_system.py    # Upgrade processing (NEW)
 │   ├── input/                # Input handling module
+│   ├── menu.py               # Advanced menu system (NEW)
 │   └── game_loop.py          # Main engine orchestrator
 ├── game/                     # Game implementation
 │   ├── config.py             # Game configuration
@@ -121,13 +133,14 @@ class PhysicsSystem(GameSystem):
 
 | System | Priority | Description |
 |--------|----------|-------------|
-| InputSystem | 0 | Keyboard input handling |
+| InputSystem | 0 | Keyboard/mouse input, WASD movement + aim |
+| UpgradeSystem | 50 | Upgrade effects, pickups, degradation |
 | PathfindingSystem | 99 | A* pathfinding grid |
 | AISystem | 100 | Enemy behavior logic |
 | PhysicsSystem | 200 | Movement, forces, bounds |
-| WeaponSystem | 300 | Firing, cooldowns |
+| WeaponSystem | 300 | Firing, cooldowns, multishot |
 | CollisionSystem | 400 | Spatial partitioning, detection |
-| HealthSystem | 600 | Damage, shields, death |
+| HealthSystem | 600 | Damage, shields, death, evasion, lifesteal |
 | WaveSystem | 700 | Enemy wave spawning |
 | StatusEffectSystem | 800 | Buff/debuff processing |
 | RenderSystem | 1000 | Turtle graphics rendering |
@@ -174,12 +187,53 @@ Built-in events:
 - **Health/Shields**: Shield absorbs damage, regenerates after delay
 - **Status Effects**: Slow, stun, burn, poison, freeze, buffs
 
+### 🆙 Permanent Active Upgrade System
+
+A comprehensive upgrade system inspired by modern roguelite games:
+
+#### Design Philosophy
+- **Always Active**: Every upgrade affects gameplay every frame
+- **Stackable**: Pick up 5 "Damage+" upgrades = 5 stacks with cumulative effects
+- **Degradation**: Take damage → 50% chance to lose 1 random upgrade stack
+- **Risk/Reward**: Powerful upgrades encourage careful play to maintain stacks
+
+#### Upgrade Tiers
+
+| Tier | Rarity | Examples |
+|------|--------|----------|
+| **Tier 1** | Very Common (1-2 kills) | Damage+, Fire Rate+, Speed+, HP+ |
+| **Tier 2** | Common (3-5 kills) | Critical Chance, Armor, Multishot, Shield Regen |
+| **Tier 3** | Uncommon (8-15 kills) | Piercing, Ricochet, Lifesteal, Regeneration |
+| **Tier 4** | Rare (Boss/Special) | Dash, Slow Aura, Crit Multiplier, Homing |
+| **Tier 5** | Epic (Boss Only) | Berserk Mode, Time Dilation, Ally Drone |
+
+#### 31 Unique Upgrades Including:
+- **Offensive**: Damage+, Fire Rate+, Critical Chance, Multishot, Piercing, Explosive Impact
+- **Defensive**: HP+, Armor, Shield Regen, Evasion, Mana Shield
+- **Utility**: Speed+, Dash, Lifesteal, Regeneration, Probability Field
+- **Special**: Berserk Mode, Time Dilation, Ally Drone, Feedback Loop
+
+#### Synergy Examples
+- Damage+ × 5 + Crit Mult × 3 = Massive burst damage
+- Fire Rate+ × 8 + Multishot × 4 = Bullet hell fantasy
+- Piercing × 5 + Ricochet × 4 = Screen-clearing projectiles
+- Armor × 8 + Regen × 5 = Unkillable tank build
+
 ### Wave System
 
 - Budget-based enemy spawning
 - Difficulty scaling per wave
 - Boss waves every 5 waves
+- Upgrade drops scale with wave number
 - Configurable enemy costs and weights
+
+### Menu System
+
+- **Main Menu**: Start Game, Quit buttons with keyboard/mouse navigation
+- **Pause Menu**: Resume, Restart, Quit (press ESC during gameplay)
+- **Game Over**: Shows score, wave reached, and kill count
+- **Victory Screen**: Final stats and replay option
+- **Proper Quit**: X button and Quit button properly close the game
 
 ## 🔧 Extending the Engine
 

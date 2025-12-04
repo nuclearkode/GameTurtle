@@ -2,9 +2,11 @@
 Health System - Damage processing, death handling, shields.
 
 Processes damage events, updates health/shields, and handles entity death.
+Integrates with the upgrade system for effects like evasion and lifesteal.
 """
 
 from __future__ import annotations
+import random
 from typing import TYPE_CHECKING, Optional
 
 from ..core.system import GameSystem, SystemPriority
@@ -15,6 +17,7 @@ from ..components.weapon import Projectile
 from ..components.collider import Collider, CollisionMask
 from ..components.renderable import Renderable
 from ..components.tags import PlayerTag, EnemyTag, ProjectileTag
+from ..components.upgrades import PlayerUpgrades
 from ..core.entity import Entity
 
 if TYPE_CHECKING:
@@ -32,12 +35,15 @@ class HealthSystem(GameSystem):
     - Invulnerability frames (i-frames)
     - Death event emission
     - Visual feedback (flash on hit)
+    - Evasion from upgrade system
+    - Lifesteal from upgrade system
     """
     
     def __init__(self, i_frame_duration: float = 0.5):
         super().__init__(priority=SystemPriority.HEALTH)
         self.i_frame_duration = i_frame_duration
         self._pending_damage: list[tuple[str, str, float]] = []  # (target_id, source_id, damage)
+        self._pending_lifesteal: list[tuple[str, float]] = []  # (player_id, amount)
     
     def initialize(self) -> None:
         """Subscribe to collision events."""
@@ -82,11 +88,13 @@ class HealthSystem(GameSystem):
         
         # Check if it's a valid hit (player projectile vs enemy, or vice versa)
         is_valid_hit = False
+        is_player_projectile = False
         
         if proj_tag:
             if proj_tag.is_player_owned:
                 # Player projectile - should hit enemies
                 is_valid_hit = self.entities.has_component(target_entity, EnemyTag)
+                is_player_projectile = True
             else:
                 # Enemy projectile - should hit player
                 is_valid_hit = self.entities.has_component(target_entity, PlayerTag)
@@ -98,11 +106,38 @@ class HealthSystem(GameSystem):
         if not projectile.register_hit(target_entity.id):
             return
         
+        # Calculate damage with upgrade modifiers
+        damage = projectile.damage
+        
+        # Get player for upgrade effects
+        player = self.entities.get_named("player")
+        if player and is_player_projectile:
+            upgrades = self.entities.get_component(player, PlayerUpgrades)
+            if upgrades:
+                # Apply damage multiplier
+                damage *= upgrades.damage_multiplier
+                
+                # Apply critical hit
+                if upgrades.crit_chance > 0 and random.random() < upgrades.crit_chance:
+                    damage *= upgrades.crit_multiplier
+                
+                # Queue lifesteal
+                if upgrades.lifesteal > 0:
+                    lifesteal_amount = damage * upgrades.lifesteal
+                    self._pending_lifesteal.append((player.id, lifesteal_amount))
+        
         # Queue damage
-        self._pending_damage.append((target_entity.id, projectile.owner_id, projectile.damage))
+        self._pending_damage.append((target_entity.id, projectile.owner_id, damage))
+        
+        # Get player upgrades for pierce bonus
+        pierce_count = projectile.pierce_count
+        if player and is_player_projectile:
+            upgrades = self.entities.get_component(player, PlayerUpgrades)
+            if upgrades:
+                pierce_count += upgrades.pierce_bonus
         
         # Destroy projectile (unless piercing)
-        if len(projectile.hit_entities) > projectile.pierce_count:
+        if len(projectile.hit_entities) > pierce_count:
             self.entities.destroy_entity(projectile_entity)
     
     def _check_contact_damage(self, entity_a: Entity, entity_b: Entity) -> None:
@@ -134,6 +169,15 @@ class HealthSystem(GameSystem):
         for target_id, source_id, damage in self._pending_damage:
             self._apply_damage(target_id, source_id, damage)
         self._pending_damage.clear()
+        
+        # Process pending lifesteal
+        for player_id, amount in self._pending_lifesteal:
+            player = self.entities.get_entity_by_id(player_id)
+            if player and self.entities.is_alive(player):
+                health = self.entities.get_component(player, Health)
+                if health:
+                    health.heal(amount)
+        self._pending_lifesteal.clear()
         
         # Update all entities with health
         for entity in self.entities.get_entities_with(Health):
@@ -182,14 +226,39 @@ class HealthSystem(GameSystem):
         if health.is_invulnerable or health.invulnerability_timer > 0:
             return
         
+        # Check for evasion (from upgrade system)
+        upgrades = self.entities.get_component(target, PlayerUpgrades)
+        if upgrades and upgrades.evasion_chance > 0:
+            if random.random() < upgrades.evasion_chance:
+                # Evaded! Show visual feedback
+                renderable = self.entities.get_component(target, Renderable)
+                if renderable:
+                    try:
+                        renderable.flash(duration=0.15, color="#00ffff")
+                    except Exception:
+                        pass
+                return  # No damage taken
+        
         # Calculate actual damage after armor (clamp armor to valid range)
         armor = max(0.0, min(0.99, health.armor))
         actual_damage = damage * (1.0 - armor)
+        
+        # Apply berserk mode defense reduction
+        if upgrades and upgrades.berserk_stacks > 0:
+            # Berserk reduces defense
+            defense_reduction = 0.30 * upgrades.berserk_stacks
+            actual_damage *= (1.0 + defense_reduction)
         
         # Shield absorption
         shield = self.entities.get_component(target, Shield)
         if shield and shield.is_active:
             actual_damage = shield.absorb_damage(actual_damage)
+        
+        # Mana shield absorption (from upgrades)
+        if upgrades and upgrades.mana_shield > 0:
+            shield_absorb = min(upgrades.mana_shield, actual_damage)
+            upgrades.mana_shield -= shield_absorb
+            actual_damage -= shield_absorb
         
         # Apply to health
         if actual_damage > 0:
@@ -208,6 +277,12 @@ class HealthSystem(GameSystem):
                     renderable.flash(duration=0.1, color="white")
                 except Exception:
                     pass  # Ignore rendering errors
+            
+            # Thorns damage (reflect damage back to attacker)
+            if upgrades and upgrades.thorns_percent > 0 and source_id:
+                thorns_damage = actual_damage * upgrades.thorns_percent
+                if thorns_damage > 0:
+                    self._pending_damage.append((source_id, target_id, thorns_damage))
     
     def _handle_death(self, entity: Entity, killer_id: str) -> None:
         """Handle entity death."""
