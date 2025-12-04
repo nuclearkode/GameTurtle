@@ -363,12 +363,6 @@ class RenderSystem(GameSystem):
             t.forward(hp_width)
             t.penup()
         
-        # Shield bar (if applicable)
-        shield = self.entities.get_component(
-            next((e for e in self.entities if e.id == t._entity_id), None) 
-            if hasattr(t, '_entity_id') else None,
-            Shield
-        )
     
     def _cleanup_turtles(self, active_entity_ids: set) -> None:
         """Recycle turtles for destroyed entities."""

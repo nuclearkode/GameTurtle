@@ -295,7 +295,12 @@ class CollisionSystem(GameSystem):
         cx: float, cy: float, cr: float,
         bx: float, by: float, bw: float, bh: float
     ) -> CollisionPair | None:
-        """Test circle-AABB collision."""
+        """Test circle-AABB collision.
+        
+        Normal convention: points FROM entity_a (circle) TOWARD entity_b (AABB).
+        In separation, A moves by: A.pos -= normal * penetration, 
+        which pushes A AWAY from B.
+        """
         bhw, bhh = bw / 2, bh / 2
         
         # Find closest point on AABB to circle center
@@ -306,15 +311,53 @@ class CollisionSystem(GameSystem):
         dy = cy - closest_y
         dist_sq = dx * dx + dy * dy
         
+        # Check if circle center is inside AABB (dist_sq == 0)
+        if dist_sq < 0.0001:  # Circle center is inside AABB
+            # Find minimum distance to push circle out to nearest edge
+            dist_to_left = cx - (bx - bhw)
+            dist_to_right = (bx + bhw) - cx
+            dist_to_bottom = cy - (by - bhh)
+            dist_to_top = (by + bhh) - cy
+            
+            min_dist = min(dist_to_left, dist_to_right, dist_to_bottom, dist_to_top)
+            
+            # Normal points from circle TOWARD the AABB interior (from A to B)
+            # Separation: A.x -= nx * pen pushes circle OUT through nearest edge
+            if min_dist == dist_to_left:
+                # Exit left: circle moves left (-x), so normal points right (+x)
+                nx, ny = 1.0, 0.0
+                penetration = dist_to_left + cr
+            elif min_dist == dist_to_right:
+                # Exit right: circle moves right (+x), so normal points left (-x)
+                nx, ny = -1.0, 0.0
+                penetration = dist_to_right + cr
+            elif min_dist == dist_to_bottom:
+                # Exit down: circle moves down (-y), so normal points up (+y)
+                nx, ny = 0.0, 1.0
+                penetration = dist_to_bottom + cr
+            else:
+                # Exit up: circle moves up (+y), so normal points down (-y)
+                nx, ny = 0.0, -1.0
+                penetration = dist_to_top + cr
+            
+            return CollisionPair(
+                entity_a=circle_entity,
+                entity_b=aabb_entity,
+                normal_x=nx,
+                normal_y=ny,
+                penetration=penetration
+            )
+        
         if dist_sq >= cr * cr:
             return None
         
-        dist = math.sqrt(dist_sq) if dist_sq > 0 else 0.001
+        dist = math.sqrt(dist_sq)
         penetration = cr - dist
         
-        # Normal from AABB to circle
-        nx = dx / dist if dist > 0 else 1.0
-        ny = dy / dist if dist > 0 else 0.0
+        # Normal from circle to closest point on AABB (from A toward B)
+        # dx, dy point from closest_point toward circle, so negate for A->B direction
+        nx = -dx / dist
+        ny = -dy / dist
         
         return CollisionPair(
             entity_a=circle_entity,
