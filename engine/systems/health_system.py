@@ -46,10 +46,18 @@ class HealthSystem(GameSystem):
     
     def _on_collision(self, event: CollisionEvent) -> None:
         """Handle collision event to check for damage."""
-        entity_a = next((e for e in self.entities if e.id == event.entity_a_id), None)
-        entity_b = next((e for e in self.entities if e.id == event.entity_b_id), None)
+        if not event or not event.entity_a_id or not event.entity_b_id:
+            return
+            
+        # Use safe entity lookup
+        entity_a = self.entities.get_entity_by_id(event.entity_a_id)
+        entity_b = self.entities.get_entity_by_id(event.entity_b_id)
         
         if not entity_a or not entity_b:
+            return
+        
+        # Verify entities are still alive
+        if not self.entities.is_alive(entity_a) or not self.entities.is_alive(entity_b):
             return
         
         # Check projectile collisions
@@ -151,8 +159,19 @@ class HealthSystem(GameSystem):
     
     def _apply_damage(self, target_id: str, source_id: str, damage: float) -> None:
         """Apply damage to an entity."""
-        target = next((e for e in self.entities if e.id == target_id), None)
-        if not target:
+        if not target_id:
+            return
+            
+        # Validate damage value
+        if not isinstance(damage, (int, float)) or damage <= 0:
+            return
+        import math
+        if not math.isfinite(damage):
+            return
+            
+        # Use safe entity lookup
+        target = self.entities.get_entity_by_id(target_id)
+        if not target or not self.entities.is_alive(target):
             return
         
         health = self.entities.get_component(target, Health)
@@ -163,8 +182,9 @@ class HealthSystem(GameSystem):
         if health.is_invulnerable or health.invulnerability_timer > 0:
             return
         
-        # Calculate actual damage after armor
-        actual_damage = damage * (1.0 - min(0.99, health.armor))
+        # Calculate actual damage after armor (clamp armor to valid range)
+        armor = max(0.0, min(0.99, health.armor))
+        actual_damage = damage * (1.0 - armor)
         
         # Shield absorption
         shield = self.entities.get_component(target, Shield)
@@ -173,9 +193,9 @@ class HealthSystem(GameSystem):
         
         # Apply to health
         if actual_damage > 0:
-            health.hp -= actual_damage
+            health.hp = max(0.0, health.hp - actual_damage)
             health.damage_this_frame += actual_damage
-            health.last_damage_source = source_id
+            health.last_damage_source = source_id if source_id else ""
             
             # Trigger i-frames for player
             if self.entities.has_component(target, PlayerTag):
@@ -184,18 +204,34 @@ class HealthSystem(GameSystem):
             # Visual feedback
             renderable = self.entities.get_component(target, Renderable)
             if renderable:
-                renderable.flash(duration=0.1, color="white")
+                try:
+                    renderable.flash(duration=0.1, color="white")
+                except Exception:
+                    pass  # Ignore rendering errors
     
     def _handle_death(self, entity: Entity, killer_id: str) -> None:
         """Handle entity death."""
-        # Emit death event
-        self.events.emit(DeathEvent(
-            entity_id=entity.id,
-            killer_id=killer_id if killer_id else None
-        ))
+        if not entity:
+            return
+            
+        # Check if entity is still valid
+        if not self.entities.is_alive(entity):
+            return
+            
+        try:
+            # Emit death event
+            self.events.emit(DeathEvent(
+                entity_id=entity.id,
+                killer_id=killer_id if killer_id else None
+            ))
+        except Exception:
+            pass  # Don't let event errors prevent cleanup
         
         # Mark for destruction
-        self.entities.destroy_entity(entity)
+        try:
+            self.entities.destroy_entity(entity)
+        except Exception:
+            pass  # Entity may already be destroyed
     
     def heal_entity(self, entity: Entity, amount: float) -> float:
         """Heal an entity. Returns actual amount healed."""

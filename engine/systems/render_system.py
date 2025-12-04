@@ -172,48 +172,77 @@ class RenderSystem(GameSystem):
     
     def update(self, dt: float) -> None:
         """Render all entities."""
+        # Validate dt
+        if not isinstance(dt, (int, float)) or dt < 0:
+            dt = 0.016
+            
         # Collect entities to render
         render_list: List[tuple[Entity, Transform, Renderable]] = []
         
-        for entity in self.entities.get_entities_with(Transform, Renderable):
-            transform = self.entities.get_component(entity, Transform)
-            renderable = self.entities.get_component(entity, Renderable)
-            
-            if transform and renderable and renderable.visible:
-                render_list.append((entity, transform, renderable))
+        try:
+            for entity in self.entities.get_entities_with(Transform, Renderable):
+                if not self.entities.is_alive(entity):
+                    continue
+                    
+                transform = self.entities.get_component(entity, Transform)
+                renderable = self.entities.get_component(entity, Renderable)
+                
+                if transform and renderable and renderable.visible:
+                    # Validate transform values
+                    import math
+                    if math.isfinite(transform.x) and math.isfinite(transform.y):
+                        render_list.append((entity, transform, renderable))
+        except Exception:
+            pass  # Continue with what we have
         
         # Sort by layer
-        render_list.sort(key=lambda x: x[2].layer.value)
+        try:
+            render_list.sort(key=lambda x: x[2].layer.value)
+        except Exception:
+            pass  # Continue without sorting
         
         # Track which entity turtles are still active
         active_entity_ids = set()
         
         # Render each entity
         for entity, transform, renderable in render_list:
-            active_entity_ids.add(entity.id)
-            
-            # Update flash timer
-            if renderable.flash_timer > 0:
-                renderable.flash_timer -= dt
-                if renderable.flash_timer <= 0 and renderable.original_color:
-                    renderable.color = renderable.original_color
-                    renderable.original_color = ""
-            
-            # Get or create turtle for this entity
-            t = self._get_turtle_for_entity(entity, renderable)
-            
-            # Update turtle state
-            self._update_turtle(t, transform, renderable)
+            try:
+                active_entity_ids.add(entity.id)
+                
+                # Update flash timer
+                if renderable.flash_timer > 0:
+                    renderable.flash_timer -= dt
+                    if renderable.flash_timer <= 0 and renderable.original_color:
+                        renderable.color = renderable.original_color
+                        renderable.original_color = ""
+                
+                # Get or create turtle for this entity
+                t = self._get_turtle_for_entity(entity, renderable)
+                
+                # Update turtle state
+                self._update_turtle(t, transform, renderable)
+            except Exception:
+                # Continue rendering other entities
+                continue
         
         # Render health bars
         if self.show_health_bars:
-            self._render_health_bars()
+            try:
+                self._render_health_bars()
+            except Exception:
+                pass  # Don't let health bar errors crash rendering
         
         # Clean up turtles for destroyed entities
-        self._cleanup_turtles(active_entity_ids)
+        try:
+            self._cleanup_turtles(active_entity_ids)
+        except Exception:
+            pass
         
         # Final screen update
-        self.screen.update()
+        try:
+            self.screen.update()
+        except Exception:
+            pass  # Screen may be closed
     
     def _get_turtle_for_entity(self, entity: Entity, renderable: Renderable) -> turtle.Turtle:
         """Get or create a turtle for an entity."""
@@ -252,32 +281,62 @@ class RenderSystem(GameSystem):
         renderable: Renderable
     ) -> None:
         """Update a turtle's visual state."""
-        # Shape
-        shape_name = self._get_shape_name(renderable.shape)
-        if t.shape() != shape_name:
-            try:
-                t.shape(shape_name)
-            except turtle.TurtleGraphicsError:
-                t.shape("circle")
-        
-        # Color (handle flash)
-        color = renderable.flash_color if renderable.flash_timer > 0 else renderable.color
+        if t is None:
+            return
+            
         try:
-            t.color(renderable.outline_color, color)
-        except turtle.TurtleGraphicsError:
-            t.color("white", "white")
-        
-        # Size
-        t.shapesize(renderable.size * transform.scale, 
-                   renderable.size * transform.scale)
-        
-        # Position and rotation
-        t.goto(transform.x, transform.y)
-        t.setheading(transform.angle)
-        
-        # Show
-        if not t.isvisible():
-            t.showturtle()
+            # Shape
+            shape_name = self._get_shape_name(renderable.shape)
+            try:
+                if t.shape() != shape_name:
+                    t.shape(shape_name)
+            except (turtle.TurtleGraphicsError, Exception):
+                try:
+                    t.shape("circle")
+                except Exception:
+                    pass
+            
+            # Color (handle flash)
+            color = renderable.flash_color if renderable.flash_timer > 0 else renderable.color
+            try:
+                t.color(renderable.outline_color or "white", color or "white")
+            except (turtle.TurtleGraphicsError, Exception):
+                try:
+                    t.color("white", "white")
+                except Exception:
+                    pass
+            
+            # Size - validate values
+            import math
+            size = renderable.size * transform.scale
+            if math.isfinite(size) and size > 0:
+                try:
+                    t.shapesize(size, size)
+                except Exception:
+                    pass
+            
+            # Position and rotation - validate values
+            if math.isfinite(transform.x) and math.isfinite(transform.y):
+                try:
+                    t.goto(transform.x, transform.y)
+                except Exception:
+                    pass
+            
+            if math.isfinite(transform.angle):
+                try:
+                    t.setheading(transform.angle)
+                except Exception:
+                    pass
+            
+            # Show
+            try:
+                if not t.isvisible():
+                    t.showturtle()
+            except Exception:
+                pass
+        except Exception:
+            # Catch any unexpected errors
+            pass
     
     def _get_shape_name(self, shape: RenderShape) -> str:
         """Convert RenderShape to turtle shape name."""
@@ -293,31 +352,46 @@ class RenderSystem(GameSystem):
     
     def _render_health_bars(self) -> None:
         """Render health bars above entities."""
-        for entity in self.entities.get_entities_with(Transform, Health, Renderable):
-            transform = self.entities.get_component(entity, Transform)
-            health = self.entities.get_component(entity, Health)
-            renderable = self.entities.get_component(entity, Renderable)
+        try:
+            entities_list = list(self.entities.get_entities_with(Transform, Health, Renderable))
+        except Exception:
+            return
             
-            if not all([transform, health, renderable]) or not renderable.visible:
+        for entity in entities_list:
+            try:
+                if not self.entities.is_alive(entity):
+                    continue
+                    
+                transform = self.entities.get_component(entity, Transform)
+                health = self.entities.get_component(entity, Health)
+                renderable = self.entities.get_component(entity, Renderable)
+                
+                if not all([transform, health, renderable]) or not renderable.visible:
+                    continue
+                
+                # Only show for enemies or if damaged
+                if health.hp >= health.max_hp:
+                    # Hide health bar
+                    if entity.id in self._health_bar_turtles:
+                        try:
+                            self._health_bar_turtles[entity.id].hideturtle()
+                        except Exception:
+                            pass
+                    continue
+                
+                # Get or create health bar turtle
+                if entity.id not in self._health_bar_turtles:
+                    if self._health_bar_pool:
+                        hb = self._health_bar_pool.pop()
+                    else:
+                        hb = self._create_turtle()
+                    self._health_bar_turtles[entity.id] = hb
+                
+                hb = self._health_bar_turtles[entity.id]
+                self._draw_health_bar(hb, transform, health, renderable)
+            except Exception:
+                # Continue rendering other health bars
                 continue
-            
-            # Only show for enemies or if damaged
-            if health.hp >= health.max_hp:
-                # Hide health bar
-                if entity.id in self._health_bar_turtles:
-                    self._health_bar_turtles[entity.id].hideturtle()
-                continue
-            
-            # Get or create health bar turtle
-            if entity.id not in self._health_bar_turtles:
-                if self._health_bar_pool:
-                    hb = self._health_bar_pool.pop()
-                else:
-                    hb = self._create_turtle()
-                self._health_bar_turtles[entity.id] = hb
-            
-            hb = self._health_bar_turtles[entity.id]
-            self._draw_health_bar(hb, transform, health, renderable)
     
     def _draw_health_bar(
         self,
@@ -327,41 +401,57 @@ class RenderSystem(GameSystem):
         renderable: Renderable
     ) -> None:
         """Draw a health bar above an entity."""
-        bar_width = 30 * renderable.size
-        bar_height = 4
-        offset_y = 20 * renderable.size
-        
-        x = transform.x - bar_width / 2
-        y = transform.y + offset_y
-        
-        t.hideturtle()
-        t.clear()
-        t.penup()
-        
-        # Background (dark)
-        t.goto(x, y)
-        t.pendown()
-        t.pensize(bar_height)
-        t.pencolor("#333333")
-        t.forward(bar_width)
-        t.penup()
-        
-        # Health fill
-        hp_width = bar_width * health.health_percent
-        if hp_width > 0:
-            # Color based on health
-            if health.health_percent > 0.6:
-                color = "#00ff00"
-            elif health.health_percent > 0.3:
-                color = "#ffff00"
-            else:
-                color = "#ff0000"
+        if t is None:
+            return
             
+        try:
+            import math
+            
+            # Validate values
+            if not math.isfinite(transform.x) or not math.isfinite(transform.y):
+                return
+            if not math.isfinite(renderable.size) or renderable.size <= 0:
+                return
+                
+            bar_width = 30 * renderable.size
+            bar_height = 4
+            offset_y = 20 * renderable.size
+            
+            x = transform.x - bar_width / 2
+            y = transform.y + offset_y
+            
+            t.hideturtle()
+            t.clear()
+            t.penup()
+            
+            # Background (dark)
             t.goto(x, y)
             t.pendown()
-            t.pencolor(color)
-            t.forward(hp_width)
+            t.pensize(bar_height)
+            t.pencolor("#333333")
+            t.forward(bar_width)
             t.penup()
+            
+            # Health fill
+            health_pct = max(0.0, min(1.0, health.health_percent))
+            hp_width = bar_width * health_pct
+            if hp_width > 0:
+                # Color based on health
+                if health_pct > 0.6:
+                    color = "#00ff00"
+                elif health_pct > 0.3:
+                    color = "#ffff00"
+                else:
+                    color = "#ff0000"
+                
+                t.goto(x, y)
+                t.pendown()
+                t.pencolor(color)
+                t.forward(hp_width)
+                t.penup()
+        except Exception:
+            # Ignore drawing errors
+            pass
         
     
     def _cleanup_turtles(self, active_entity_ids: set) -> None:

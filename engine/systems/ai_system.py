@@ -44,42 +44,57 @@ class AISystem(GameSystem):
     
     def update(self, dt: float) -> None:
         """Process AI for all entities with AIBrain."""
+        # Validate dt
+        if not isinstance(dt, (int, float)) or dt <= 0 or dt > 1.0:
+            dt = 0.016  # Default to ~60fps
+        
         # Cache player reference
         self._update_player_cache()
         
         # Get all AI entities
-        ai_entities = list(self.entities.get_entities_with(AIBrain, Transform))
+        try:
+            ai_entities = list(self.entities.get_entities_with(AIBrain, Transform))
+        except Exception:
+            return
         
         for entity in ai_entities:
+            # Skip destroyed entities
+            if not self.entities.is_alive(entity):
+                continue
+                
             brain = self.entities.get_component(entity, AIBrain)
             transform = self.entities.get_component(entity, Transform)
             
             if not brain or not transform:
                 continue
             
-            # Update cooldowns
-            if brain.current_attack_cooldown > 0:
-                brain.current_attack_cooldown -= dt
-            
-            brain.state_timer += dt
-            
-            # Process based on behavior type
-            if brain.behavior == AIBehavior.CHASER:
-                self._process_chaser(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.TURRET:
-                self._process_turret(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.SWARM:
-                self._process_swarm(entity, brain, transform, ai_entities, dt)
-            elif brain.behavior == AIBehavior.PATROL:
-                self._process_patrol(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.ORBIT:
-                self._process_orbit(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.BOSS:
-                self._process_boss(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.WANDER:
-                self._process_wander(entity, brain, transform, dt)
-            elif brain.behavior == AIBehavior.FLEE:
-                self._process_flee(entity, brain, transform, dt)
+            try:
+                # Update cooldowns
+                if brain.current_attack_cooldown > 0:
+                    brain.current_attack_cooldown -= dt
+                
+                brain.state_timer += dt
+                
+                # Process based on behavior type
+                if brain.behavior == AIBehavior.CHASER:
+                    self._process_chaser(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.TURRET:
+                    self._process_turret(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.SWARM:
+                    self._process_swarm(entity, brain, transform, ai_entities, dt)
+                elif brain.behavior == AIBehavior.PATROL:
+                    self._process_patrol(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.ORBIT:
+                    self._process_orbit(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.BOSS:
+                    self._process_boss(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.WANDER:
+                    self._process_wander(entity, brain, transform, dt)
+                elif brain.behavior == AIBehavior.FLEE:
+                    self._process_flee(entity, brain, transform, dt)
+            except Exception:
+                # Continue processing other entities if one fails
+                continue
     
     def _update_player_cache(self) -> None:
         """Find and cache player entity."""
@@ -148,17 +163,31 @@ class AISystem(GameSystem):
         speed_mult: float = 1.0
     ) -> None:
         """Apply movement in a direction."""
+        # Validate direction values
+        if not math.isfinite(dir_x) or not math.isfinite(dir_y):
+            return
+        
         physics = self.entities.get_component(entity, Physics)
         velocity = self.entities.get_component(entity, Velocity)
         brain = self.entities.get_component(entity, AIBrain)
         
+        if not brain:
+            return
+            
+        # Clamp speed multiplier to reasonable values
+        speed_mult = max(0.0, min(5.0, speed_mult))
+        brain_speed = max(0.0, min(5.0, brain.speed_multiplier))
+        
         if physics:
-            base_speed = physics.acceleration * brain.speed_multiplier * speed_mult
-            physics.accel_x = dir_x * base_speed
-            physics.accel_y = dir_y * base_speed
+            base_speed = physics.acceleration * brain_speed * speed_mult
+            if math.isfinite(base_speed):
+                physics.accel_x = dir_x * base_speed
+                physics.accel_y = dir_y * base_speed
         elif velocity:
-            velocity.vx = dir_x * 200 * brain.speed_multiplier * speed_mult
-            velocity.vy = dir_y * 200 * brain.speed_multiplier * speed_mult
+            final_speed = 200 * brain_speed * speed_mult
+            if math.isfinite(final_speed):
+                velocity.vx = dir_x * final_speed
+                velocity.vy = dir_y * final_speed
     
     def _try_attack(self, entity: Entity, brain: AIBrain) -> bool:
         """Attempt to fire weapon if possible."""

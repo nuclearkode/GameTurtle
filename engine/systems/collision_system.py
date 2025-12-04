@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from ..core.entity import Entity
 
 
+def _is_valid_float(value: float) -> bool:
+    """Check if a float is valid (not NaN or infinity)."""
+    return math.isfinite(value)
+
+
+def _sanitize_float(value: float, default: float = 0.0) -> float:
+    """Return the value if valid, otherwise return default."""
+    return value if _is_valid_float(value) else default
+
+
 @dataclass
 class CollisionPair:
     """Data about a collision between two entities."""
@@ -118,12 +128,17 @@ class CollisionSystem(GameSystem):
         
         collidable_entities = list(self.entities.get_entities_with(Transform, Collider))
         
-        # Insert all entities into spatial grid
+        # Insert all entities into spatial grid (skip invalid positions)
         for entity in collidable_entities:
             transform = self.entities.get_component(entity, Transform)
             collider = self.entities.get_component(entity, Collider)
             if transform and collider:
+                # Skip entities with invalid positions
+                if not _is_valid_float(transform.x) or not _is_valid_float(transform.y):
+                    continue
                 radius = self._get_effective_radius(collider)
+                if not _is_valid_float(radius) or radius <= 0:
+                    radius = 10.0  # Default safe radius
                 self.spatial_grid.insert(entity, transform.x, transform.y, radius)
         
         # Broad phase + narrow phase
@@ -410,25 +425,47 @@ class CollisionSystem(GameSystem):
         if not transform_a or not transform_b:
             return
         
+        # Validate collision data
+        if not _is_valid_float(pair.normal_x) or not _is_valid_float(pair.normal_y):
+            return
+        if not _is_valid_float(pair.penetration) or pair.penetration <= 0:
+            return
+        
+        # Clamp penetration to prevent huge jumps
+        penetration = min(pair.penetration, 100.0)
+        
         # Determine how much each entity moves
         if collider_a.is_static and collider_b.is_static:
             return  # Neither can move
         
         if collider_a.is_static:
             # Only B moves
-            transform_b.x += pair.normal_x * pair.penetration
-            transform_b.y += pair.normal_y * pair.penetration
+            new_x = _sanitize_float(transform_b.x) + pair.normal_x * penetration
+            new_y = _sanitize_float(transform_b.y) + pair.normal_y * penetration
+            if _is_valid_float(new_x) and _is_valid_float(new_y):
+                transform_b.x = new_x
+                transform_b.y = new_y
         elif collider_b.is_static:
             # Only A moves
-            transform_a.x -= pair.normal_x * pair.penetration
-            transform_a.y -= pair.normal_y * pair.penetration
+            new_x = _sanitize_float(transform_a.x) - pair.normal_x * penetration
+            new_y = _sanitize_float(transform_a.y) - pair.normal_y * penetration
+            if _is_valid_float(new_x) and _is_valid_float(new_y):
+                transform_a.x = new_x
+                transform_a.y = new_y
         else:
             # Both move equally
-            half_pen = pair.penetration / 2
-            transform_a.x -= pair.normal_x * half_pen
-            transform_a.y -= pair.normal_y * half_pen
-            transform_b.x += pair.normal_x * half_pen
-            transform_b.y += pair.normal_y * half_pen
+            half_pen = penetration / 2
+            new_ax = _sanitize_float(transform_a.x) - pair.normal_x * half_pen
+            new_ay = _sanitize_float(transform_a.y) - pair.normal_y * half_pen
+            new_bx = _sanitize_float(transform_b.x) + pair.normal_x * half_pen
+            new_by = _sanitize_float(transform_b.y) + pair.normal_y * half_pen
+            
+            if _is_valid_float(new_ax) and _is_valid_float(new_ay):
+                transform_a.x = new_ax
+                transform_a.y = new_ay
+            if _is_valid_float(new_bx) and _is_valid_float(new_by):
+                transform_b.x = new_bx
+                transform_b.y = new_by
         
         # Apply velocity response (bounce)
         self._apply_bounce(pair, collider_a, collider_b)
