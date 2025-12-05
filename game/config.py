@@ -2,10 +2,93 @@
 Game Configuration - Constants and tunable parameters.
 
 Centralizes all game configuration for easy tweaking.
+Includes support for different arena themes and visual styles.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, List
+from enum import Enum, auto
+
+
+class ArenaTheme(Enum):
+    """Available arena visual themes."""
+    GRID = "grid"              # Digital/Minimalist - Cyan, black, white
+    VOID = "void"              # Cosmic/Empty - Deep purple, stars
+    CRYSTAL = "crystal"        # Organic/Crystalline - Teal, glowing
+    CORRUPTED = "corrupted"    # Nature/Decay - Sickly green, brown
+    FORGE = "forge"            # Industrial - Orange, gray, dark metal
+    NEXUS = "nexus"            # Convergence - All colors (rainbow)
+
+
+@dataclass
+class ThemeColors:
+    """Color palette for an arena theme."""
+    background: str = "#000000"
+    grid_primary: str = "#222222"
+    grid_secondary: str = "#111111"
+    border: str = "#444444"
+    accent: str = "#00ffff"
+    hazard: str = "#ff0000"
+    safe_zone: str = "#00ff00"
+
+
+# Theme color definitions
+THEME_PALETTES = {
+    ArenaTheme.GRID: ThemeColors(
+        background="#000000",
+        grid_primary="#004444",
+        grid_secondary="#002222",
+        border="#00ffff",
+        accent="#00ffff",
+        hazard="#ff4444",
+        safe_zone="#44ff44"
+    ),
+    ArenaTheme.VOID: ThemeColors(
+        background="#0a0014",
+        grid_primary="#1a0033",
+        grid_secondary="#0d001a",
+        border="#6600aa",
+        accent="#aa44ff",
+        hazard="#ff00ff",
+        safe_zone="#00ffaa"
+    ),
+    ArenaTheme.CRYSTAL: ThemeColors(
+        background="#001a1a",
+        grid_primary="#003333",
+        grid_secondary="#001a1a",
+        border="#00aaaa",
+        accent="#44ffff",
+        hazard="#ff8844",
+        safe_zone="#88ffff"
+    ),
+    ArenaTheme.CORRUPTED: ThemeColors(
+        background="#0a0800",
+        grid_primary="#1a1000",
+        grid_secondary="#0d0800",
+        border="#446600",
+        accent="#88aa00",
+        hazard="#ff0044",
+        safe_zone="#00ff44"
+    ),
+    ArenaTheme.FORGE: ThemeColors(
+        background="#0a0500",
+        grid_primary="#1a0a00",
+        grid_secondary="#0d0500",
+        border="#ff6600",
+        accent="#ffaa44",
+        hazard="#ff0000",
+        safe_zone="#ffff44"
+    ),
+    ArenaTheme.NEXUS: ThemeColors(
+        background="#0a0a0a",
+        grid_primary="#1a1a1a",
+        grid_secondary="#0d0d0d",
+        border="#ffffff",
+        accent="#ff00ff",
+        hazard="#ff4444",
+        safe_zone="#44ff44"
+    ),
+}
 
 
 @dataclass
@@ -39,10 +122,10 @@ class WeaponConfig:
 class WaveConfig:
     """Wave system configuration."""
     start_budget: float = 5.0
-    budget_per_wave: float = 3.0
-    max_waves: int = 15
+    budget_per_wave: float = 3.5
+    max_waves: int = 20  # Extended to 20 waves
     wave_delay: float = 3.0
-    spawn_delay: float = 0.5
+    spawn_delay: float = 0.4
     boss_every_n_waves: int = 5
 
 
@@ -55,6 +138,20 @@ class ArenaConfig:
     border_color: str = "#444444"
     grid_color: str = "#222222"
     grid_size: int = 50
+    theme: ArenaTheme = ArenaTheme.GRID
+    
+    def get_theme_colors(self) -> ThemeColors:
+        """Get the color palette for the current theme."""
+        return THEME_PALETTES.get(self.theme, THEME_PALETTES[ArenaTheme.GRID])
+
+
+@dataclass
+class DifficultyConfig:
+    """Dynamic difficulty configuration."""
+    enabled: bool = True
+    min_modifier: float = 0.7
+    max_modifier: float = 1.5
+    adaptation_rate: float = 0.1  # How fast difficulty changes
 
 
 @dataclass
@@ -77,6 +174,7 @@ class GameConfig:
     weapon: WeaponConfig = field(default_factory=WeaponConfig)
     wave: WaveConfig = field(default_factory=WaveConfig)
     arena: ArenaConfig = field(default_factory=ArenaConfig)
+    difficulty: DifficultyConfig = field(default_factory=DifficultyConfig)
     
     # Gameplay settings
     i_frame_duration: float = 0.5
@@ -87,6 +185,11 @@ class GameConfig:
     enemy_hp_multiplier: float = 1.0
     enemy_damage_multiplier: float = 1.0
     enemy_speed_multiplier: float = 1.0
+    
+    # Visual settings
+    enable_screen_shake: bool = True
+    enable_particles: bool = True
+    enable_glow_effects: bool = True
 
 
 # Upgrade definitions

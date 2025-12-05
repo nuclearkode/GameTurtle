@@ -19,8 +19,16 @@ class RenderShape(Enum):
     TURTLE = "turtle"
     CLASSIC = "classic"  # Classic turtle arrow shape
     
+    # Special shapes for different entity types
+    DIAMOND = "diamond"  # Pickups/consumables
+    STAR = "star"  # Special items
+    HEXAGON = "hexagon"  # Advanced enemies
+    
     # Custom shapes (registered separately)
     CUSTOM = "custom"
+    
+    # Text-based shapes (uses text_symbol field)
+    TEXT = "text"
 
 
 class RenderLayer(Enum):
@@ -52,6 +60,7 @@ class Renderable:
         visible: Whether to render this entity
         layer: Render layer for ordering
         turtle_id: Internal reference to the turtle object (managed by RenderSystem)
+        text_symbol: For TEXT shape, the character/symbol to display
         
     Size Notes:
         - Default turtle size is 20x20 pixels
@@ -69,14 +78,23 @@ class Renderable:
     visible: bool = True
     layer: RenderLayer = RenderLayer.ENEMY
     
+    # For TEXT shape - the symbol/letter to display
+    text_symbol: str = ""
+    
+    # For glow/pulse effects
+    glow: bool = False
+    pulse_speed: float = 2.0  # Pulse cycles per second
+    
     # Internal state managed by RenderSystem
     turtle_id: Optional[int] = field(default=None, repr=False)
     _turtle_ref: Optional[Any] = field(default=None, repr=False)
+    _text_turtle_ref: Optional[Any] = field(default=None, repr=False)
     
     # Animation state
     flash_timer: float = 0.0
     flash_color: str = "white"
     original_color: str = field(default="", repr=False)
+    _pulse_time: float = 0.0
     
     def flash(self, duration: float = 0.1, color: str = "white") -> None:
         """

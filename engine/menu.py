@@ -470,27 +470,42 @@ class MenuSystem:
         t.end_fill()
     
     def _draw_main_menu(self) -> None:
-        """Draw main menu content."""
+        """Draw main menu content with narrative framing."""
         t = self._menu_turtle
         
         # Title
-        t.goto(0, 150)
+        t.goto(0, 180)
         t.color("#00ff88")
         t.write("ROBO-ARENA", align="center", font=("Arial", 48, "bold"))
         
-        # Subtitle
-        t.goto(0, 100)
+        # Subtitle / tagline
+        t.goto(0, 135)
         t.color("#888888")
-        t.write("A Top-Down Arena Shooter", align="center", font=("Arial", 16, "normal"))
+        t.write("THE ARENA PROTOCOL", align="center", font=("Arial", 14, "normal"))
+        
+        # Narrative text
+        t.goto(0, 90)
+        t.color("#666666")
+        t.write("You are a lone defense unit in a corrupted sector.", 
+                align="center", font=("Arial", 11, "italic"))
+        t.goto(0, 70)
+        t.write("Wave after wave of hostile entities approach.", 
+                align="center", font=("Arial", 11, "italic"))
         
         # Controls hint
-        t.goto(0, -180)
-        t.color("#666666")
+        t.goto(0, -160)
+        t.color("#555555")
         t.write("WASD: Move | Mouse: Aim | Space/Click: Fire", 
-                align="center", font=("Arial", 12, "normal"))
+                align="center", font=("Arial", 10, "normal"))
+        t.goto(0, -180)
+        t.write("Use ↑↓ to navigate, Enter to select", 
+                align="center", font=("Arial", 10, "normal"))
+        
+        # Version/credits
         t.goto(0, -210)
-        t.write("Use ↑↓ to navigate, Enter/Space to select", 
-                align="center", font=("Arial", 12, "normal"))
+        t.color("#444444")
+        t.write("Survive. Evolve. Transcend.", 
+                align="center", font=("Arial", 10, "italic"))
     
     def _draw_pause_menu(self) -> None:
         """Draw pause menu content."""
@@ -502,47 +517,72 @@ class MenuSystem:
         t.write("PAUSED", align="center", font=("Arial", 36, "bold"))
     
     def _draw_game_over(self) -> None:
-        """Draw game over screen."""
+        """Draw game over screen with narrative."""
         t = self._menu_turtle
         
         # Title
         t.goto(0, 180)
         t.color("#ff4444")
-        t.write("GAME OVER", align="center", font=("Arial", 48, "bold"))
+        t.write("SYSTEM FAILURE", align="center", font=("Arial", 40, "bold"))
+        
+        # Narrative
+        t.goto(0, 140)
+        t.color("#888888")
+        t.write("The defense unit has been overwhelmed.", 
+                align="center", font=("Arial", 12, "italic"))
+        t.goto(0, 120)
+        t.write("The corrupted sector remains hostile.", 
+                align="center", font=("Arial", 12, "italic"))
         
         # Stats
-        t.goto(0, 100)
+        t.goto(0, 70)
         t.color("#ffffff")
-        t.write(f"Wave Reached: {self.final_wave}", align="center", font=("Arial", 20, "normal"))
+        t.write(f"Wave Reached: {self.final_wave}", align="center", font=("Arial", 18, "normal"))
         
-        t.goto(0, 60)
+        t.goto(0, 35)
+        t.color("#ffaa00")
         t.write(f"Final Score: {self.final_score:,}", align="center", font=("Arial", 24, "bold"))
         
-        t.goto(0, 20)
-        t.color("#888888")
-        t.write(f"Enemies Defeated: {self.total_kills}", align="center", font=("Arial", 16, "normal"))
+        t.goto(0, 0)
+        t.color("#666666")
+        t.write(f"Enemies Neutralized: {self.total_kills}", align="center", font=("Arial", 14, "normal"))
     
     def _draw_victory(self) -> None:
-        """Draw victory screen."""
+        """Draw victory screen with narrative."""
         t = self._menu_turtle
         
         # Title
         t.goto(0, 200)
         t.color("#00ff00")
-        t.write("VICTORY!", align="center", font=("Arial", 48, "bold"))
+        t.write("SECTOR CLEARED", align="center", font=("Arial", 40, "bold"))
         
-        t.goto(0, 150)
-        t.color("#ffff00")
-        t.write("You survived all waves!", align="center", font=("Arial", 20, "normal"))
+        # Narrative
+        t.goto(0, 160)
+        t.color("#00ffaa")
+        t.write("YOU HAVE SURVIVED ALL 20 WAVES", align="center", font=("Arial", 16, "bold"))
+        
+        t.goto(0, 130)
+        t.color("#888888")
+        t.write("You emerged from the corrupted sector,", 
+                align="center", font=("Arial", 12, "italic"))
+        t.goto(0, 110)
+        t.write("upgraded beyond recognition.", 
+                align="center", font=("Arial", 12, "italic"))
         
         # Stats
-        t.goto(0, 80)
-        t.color("#ffffff")
+        t.goto(0, 60)
+        t.color("#ffff00")
         t.write(f"Final Score: {self.final_score:,}", align="center", font=("Arial", 28, "bold"))
         
-        t.goto(0, 40)
-        t.color("#888888")
-        t.write(f"Total Enemies Defeated: {self.total_kills}", align="center", font=("Arial", 16, "normal"))
+        t.goto(0, 20)
+        t.color("#ffffff")
+        t.write(f"Total Enemies Neutralized: {self.total_kills}", align="center", font=("Arial", 16, "normal"))
+        
+        # Closing narrative
+        t.goto(0, -30)
+        t.color("#666666")
+        t.write("The arena will reset. Other survivors may challenge again.", 
+                align="center", font=("Arial", 11, "italic"))
     
     def _draw_buttons(self, buttons: List[MenuButton]) -> None:
         """Draw menu buttons."""
