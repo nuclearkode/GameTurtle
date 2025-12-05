@@ -422,10 +422,11 @@ class InputSystem(GameSystem):
         
         # === COMBAT ===
         if weapon:
-            # Fire on space key held OR mouse button held
+            # Fire on space key held OR mouse button held OR mouse clicked this frame
             weapon.is_firing = (
                 self.state.is_action_held(GameAction.FIRE) or 
-                self._mouse_button_down
+                self._mouse_button_down or
+                self.state.mouse_clicked
             )
             
             if self.state.is_action_pressed(GameAction.RELOAD):

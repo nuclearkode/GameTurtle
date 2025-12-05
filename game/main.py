@@ -45,8 +45,37 @@ from engine.components.health import Health, Shield
 from engine.components.upgrades import PlayerUpgrades
 from engine.menu import MenuSystem, MenuState
 
-from .config import GameConfig, DEFAULT_CONFIG
+from .config import GameConfig, DEFAULT_CONFIG, ArenaTheme, THEME_PALETTES
 from .prefabs import create_player, create_arena_obstacles
+
+
+# Upgrade synergy definitions
+UPGRADE_SYNERGIES = {
+    "geometry_master": {
+        "name": "GEOMETRY MASTER",
+        "required": ["multishot", "ricochet", "piercing"],
+        "color": "#ff00ff",
+        "description": "Bullets leave rainbow trails"
+    },
+    "unstoppable": {
+        "name": "UNSTOPPABLE",
+        "required": ["armor", "hp", "regeneration"],
+        "color": "#ffaa00",
+        "description": "Metallic sheen + extra glow"
+    },
+    "berserker": {
+        "name": "BERSERKER",
+        "required": ["damage", "fire_rate", "speed"],
+        "color": "#ff0000",
+        "description": "Glass cannon mode"
+    },
+    "technomancer": {
+        "name": "TECHNOMANCER",
+        "required": ["shield_regen", "time_dilation", "ally_drone"],
+        "color": "#00ffff",
+        "description": "Tech mastery"
+    }
+}
 
 
 class RoboArena:
@@ -54,6 +83,12 @@ class RoboArena:
     Main game class for Robo-Arena.
     
     Orchestrates the game setup, UI, menu system, and game-specific logic.
+    Features:
+    - Advanced menu system
+    - Wave-based progression
+    - Dynamic difficulty
+    - Upgrade synergies
+    - Narrative framing
     """
     
     def __init__(self, config: Optional[GameConfig] = None):
@@ -67,9 +102,31 @@ class RoboArena:
         self.wave_text_timer = 0.0
         self.current_wave_text = ""
         
+        # Narrative state
+        self.show_narrative = False
+        self.narrative_text = ""
+        self.narrative_timer = 0.0
+        
+        # Synergy state
+        self.active_synergies: list = []
+        self.synergy_check_timer = 0.0
+        
+        # Boss intro state
+        self.show_boss_intro = False
+        self.boss_name = ""
+        self.boss_intro_timer = 0.0
+        
+        # Special event state
+        self.show_event_text = False
+        self.event_text = ""
+        self.event_timer = 0.0
+        
         # Game state
         self.game_started = False
         self.is_paused = False
+        
+        # Arena theme (changes per wave range)
+        self.current_theme = ArenaTheme.GRID
     
     def setup(self) -> None:
         """Set up the game."""
@@ -335,62 +392,52 @@ class RoboArena:
         # Get game state
         wave_system = self.game_loop.get_system(WaveSystem)
         
-        # Draw HUD
+        # Draw HUD - positioned at BOTTOM of screen to not block spawn areas
         hw = self.config.arena.width / 2
         hh = self.config.arena.height / 2
         
-        # Wave and score
+        # Wave/Score info - bottom left corner (compact)
         if wave_system:
             self._draw_text(
-                f"Wave: {wave_system.current_wave}",
-                -hw + 10, hh - 25,
-                align="left"
-            )
-            self._draw_text(
-                f"Score: {wave_system.score}",
-                -hw + 10, hh - 45,
-                align="left"
-            )
-            self._draw_text(
-                f"Enemies: {wave_system.enemies_remaining}",
-                -hw + 10, hh - 65,
-                align="left"
+                f"W:{wave_system.current_wave} | Score:{wave_system.score} | E:{wave_system.enemies_remaining}",
+                -hw + 10, -hh + 35,
+                align="left",
+                size=11,
+                color="#aaaaaa"
             )
         
-        # Player health
+        # Player health - bottom center
         player = self.game_loop.entities.get_named("player")
         if player:
             health = self.game_loop.entities.get_component(player, Health)
             shield = self.game_loop.entities.get_component(player, Shield)
             upgrades = self.game_loop.entities.get_component(player, PlayerUpgrades)
             
+            # Health bar at bottom center
             if health:
                 self._draw_health_bar(
-                    hw - 150, hh - 25,
-                    120, 15,
+                    -60, -hh + 55,
+                    120, 12,
                     health.health_percent,
-                    "#00ff00", "#ff0000"
+                    "#00ff00", "#333333"
                 )
                 self._draw_text(
                     f"HP: {int(health.hp)}/{int(health.max_hp)}",
-                    hw - 90, hh - 22,
-                    size=10
+                    0, -hh + 52,
+                    size=9,
+                    color="#ffffff"
                 )
             
+            # Shield bar below health
             if shield and shield.max_hp > 0:
                 self._draw_health_bar(
-                    hw - 150, hh - 45,
-                    120, 10,
+                    -50, -hh + 38,
+                    100, 8,
                     shield.shield_percent,
-                    "#4444ff", "#222266"
-                )
-                self._draw_text(
-                    f"Shield: {int(shield.hp)}/{int(shield.max_hp)}",
-                    hw - 90, hh - 43,
-                    size=10
+                    "#4444ff", "#222244"
                 )
             
-            # Draw upgrade display
+            # Draw upgrade display on the RIGHT side (vertical strip)
             if upgrades:
                 self._draw_upgrade_display(upgrades, hw, hh)
         
@@ -407,71 +454,156 @@ class RoboArena:
                     color="#ffffff"
                 )
         
-        # Controls hint
+        # Boss introduction
+        if self.show_boss_intro:
+            self.boss_intro_timer -= dt
+            if self.boss_intro_timer <= 0:
+                self.show_boss_intro = False
+            else:
+                # Draw boss intro overlay
+                self._draw_text(
+                    "⚠ BOSS APPROACHING ⚠",
+                    0, 80,
+                    size=16,
+                    color="#ff4444"
+                )
+                self._draw_text(
+                    self.boss_name,
+                    0, 50,
+                    size=32,
+                    color="#ff8800"
+                )
+                self._draw_text(
+                    "ENGAGE",
+                    0, 15,
+                    size=14,
+                    color="#ffffff"
+                )
+        
+        # Narrative text
+        if self.show_narrative:
+            self.narrative_timer -= dt
+            if self.narrative_timer <= 0:
+                self.show_narrative = False
+            else:
+                # Draw narrative overlay
+                lines = self.narrative_text.split('\n')
+                y_start = 30 + len(lines) * 10
+                for i, line in enumerate(lines):
+                    self._draw_text(
+                        line,
+                        0, y_start - i * 20,
+                        size=12,
+                        color="#aaaaaa"
+                    )
+        
+        # Special event notification
+        wave_system = self.game_loop.get_system(WaveSystem)
+        if wave_system and wave_system.event_active:
+            event_colors = {
+                "energy_surge": "#ffff00",
+                "gold_rush": "#ffd700",
+                "enemy_mutation": "#ff0044"
+            }
+            event_names = {
+                "energy_surge": "⚡ ENERGY SURGE ⚡",
+                "gold_rush": "💰 GOLD RUSH 💰",
+                "enemy_mutation": "☠ ENEMY MUTATION ☠"
+            }
+            color = event_colors.get(wave_system.event_type, "#ffffff")
+            name = event_names.get(wave_system.event_type, "SPECIAL EVENT")
+            self._draw_text(
+                name,
+                0, hh - 40,
+                size=14,
+                color=color
+            )
+        
+        # Synergy badges (check periodically)
+        self.synergy_check_timer += dt
+        if self.synergy_check_timer >= 1.0:  # Check every second
+            self.synergy_check_timer = 0
+            if upgrades:
+                self._check_upgrade_synergies(upgrades)
+        
+        # Draw active synergies
+        if self.active_synergies:
+            synergy_y = hh - 25
+            for synergy in self.active_synergies[:2]:  # Max 2 shown
+                self._draw_text(
+                    f"[{synergy['name']}]",
+                    0, synergy_y,
+                    size=10,
+                    color=synergy['color']
+                )
+                synergy_y -= 15
+        
+        # Controls hint - bottom
         self._draw_text(
-            "WASD: Move | Mouse: Aim | Space/Click: Fire | ESC: Pause",
+            "WASD: Move | Mouse/Click: Shoot | ESC: Pause",
             0, -hh + 15,
-            size=12,
-            color="#888888"
+            size=10,
+            color="#666666"
         )
     
     def _draw_upgrade_display(self, upgrades: PlayerUpgrades, hw: float, hh: float) -> None:
-        """Draw the upgrade stacks display."""
+        """Draw the upgrade stacks display on the RIGHT side - thin vertical strip."""
         if upgrades.total_stacks == 0:
             return
         
-        # Draw upgrade stats on the left side
-        y_offset = hh - 90
+        # Draw upgrade stats on the RIGHT side (thin vertical strip, doesn't block gameplay)
+        y_offset = 0  # Start at middle-right
+        x_pos = hw - 8  # Right edge
         
-        # Show key upgrades
+        # Show key upgrades as compact icons
         upgrades_to_show = [
-            ("⚔️ DMG", upgrades.damage_multiplier - 1.0, 20, "#ff4444"),
-            ("🔫 FR", 1.0 - upgrades.fire_rate_multiplier, 15, "#ffaa00"),
-            ("🏃 SPD", upgrades.speed_multiplier - 1.0, 10, "#00ffff"),
-            ("💚 HP+", upgrades.max_hp_bonus, 150, "#00ff00"),
-            ("🛡️ ARM", upgrades.armor_bonus, 30, "#888888"),
+            ("D", upgrades.damage_multiplier - 1.0, 20, "#ff4444"),  # D = Damage
+            ("F", 1.0 - upgrades.fire_rate_multiplier, 15, "#ffaa00"),  # F = Fire rate
+            ("S", upgrades.speed_multiplier - 1.0, 10, "#00ffff"),  # S = Speed
+            ("H", upgrades.max_hp_bonus, 150, "#00ff00"),  # H = HP
+            ("A", upgrades.armor_bonus, 30, "#888888"),  # A = Armor
         ]
+        
+        active_count = sum(1 for _, v, _, _ in upgrades_to_show if v > 0)
+        if active_count > 0:
+            y_offset = (active_count * 18) // 2
         
         for icon_label, value, max_val, color in upgrades_to_show:
             if value > 0:
                 # Calculate bar width based on percentage of max
                 pct = min(1.0, value / (max_val * 0.05) if max_val < 50 else value / max_val)
                 
-                # Draw bar background
-                self.ui_turtle.goto(-hw + 10, y_offset)
+                # Draw vertical bar (thin)
+                bar_height = 14
+                bar_width = 4
+                
+                # Background
+                self.ui_turtle.goto(x_pos, y_offset - bar_height//2)
                 self.ui_turtle.pendown()
-                self.ui_turtle.pensize(8)
+                self.ui_turtle.pensize(bar_width)
                 self.ui_turtle.pencolor("#333333")
-                self.ui_turtle.forward(60)
+                self.ui_turtle.setheading(90)
+                self.ui_turtle.forward(bar_height)
                 self.ui_turtle.penup()
                 
-                # Draw bar fill
+                # Fill
                 if pct > 0:
-                    self.ui_turtle.goto(-hw + 10, y_offset)
+                    self.ui_turtle.goto(x_pos, y_offset - bar_height//2)
                     self.ui_turtle.pendown()
                     self.ui_turtle.pencolor(color)
-                    self.ui_turtle.forward(60 * pct)
+                    self.ui_turtle.forward(bar_height * pct)
                     self.ui_turtle.penup()
                 
-                # Draw label
-                if value < 1:
-                    self._draw_text(
-                        f"{icon_label}: +{value*100:.0f}%",
-                        -hw + 75, y_offset - 4,
-                        size=9,
-                        color=color,
-                        align="left"
-                    )
-                else:
-                    self._draw_text(
-                        f"{icon_label}: +{value:.0f}",
-                        -hw + 75, y_offset - 4,
-                        size=9,
-                        color=color,
-                        align="left"
-                    )
+                # Letter icon
+                self._draw_text(
+                    icon_label,
+                    x_pos - 12, y_offset - 5,
+                    size=8,
+                    color=color,
+                    align="center"
+                )
                 
-                y_offset -= 15
+                y_offset -= 18
     
     def _check_pause_input(self) -> None:
         """Check for pause input."""
@@ -523,14 +655,112 @@ class RoboArena:
     
     def _on_wave_start(self, event: WaveStartEvent) -> None:
         """Handle wave start event."""
-        self.current_wave_text = f"Wave {event.wave_number}"
-        self.show_wave_text = True
-        self.wave_text_timer = 2.0
+        wave_num = event.wave_number
+        
+        # Check for boss wave
+        if wave_num % 5 == 0:
+            self._show_boss_intro(wave_num)
+        else:
+            self.current_wave_text = f"Wave {wave_num}"
+            self.show_wave_text = True
+            self.wave_text_timer = 2.0
         
         # Update upgrade system with current wave
         upgrade_system = self.game_loop.get_system(UpgradeSystem)
         if upgrade_system:
-            upgrade_system.set_wave(event.wave_number)
+            upgrade_system.set_wave(wave_num)
+        
+        # Update arena theme based on wave progression
+        self._update_arena_theme(wave_num)
+        
+        # Check for special narrative moments
+        self._check_narrative_trigger(wave_num)
+    
+    def _show_boss_intro(self, wave_num: int) -> None:
+        """Show boss introduction sequence."""
+        boss_names = {
+            5: "THE CONSTRUCTOR",
+            10: "THE SHADOW",
+            15: "THE ARCHITECT",
+            20: "THE FINAL TRIAL"
+        }
+        
+        self.boss_name = boss_names.get(wave_num, f"BOSS WAVE {wave_num}")
+        self.show_boss_intro = True
+        self.boss_intro_timer = 3.0
+        self.show_wave_text = False
+    
+    def _update_arena_theme(self, wave_num: int) -> None:
+        """Update arena theme based on wave number."""
+        # Change theme every few waves for visual variety
+        if wave_num <= 3:
+            new_theme = ArenaTheme.GRID
+        elif wave_num <= 5:
+            new_theme = ArenaTheme.CRYSTAL
+        elif wave_num <= 7:
+            new_theme = ArenaTheme.VOID
+        elif wave_num <= 10:
+            new_theme = ArenaTheme.CORRUPTED
+        elif wave_num <= 15:
+            new_theme = ArenaTheme.FORGE
+        else:
+            new_theme = ArenaTheme.NEXUS
+        
+        if new_theme != self.current_theme:
+            self.current_theme = new_theme
+            # Update render system theme
+            render_system = self.game_loop.get_system(RenderSystem)
+            if render_system:
+                render_system.set_arena_theme(new_theme)
+    
+    def _check_narrative_trigger(self, wave_num: int) -> None:
+        """Check if a narrative moment should be shown."""
+        narratives = {
+            1: "You are a lone defense unit in a corrupted sector.\nSurvive. Evolve. Transcend.",
+            5: "The first guardian approaches.\nDestroy it to regain control.",
+            10: "Darkness gathers. The Shadow emerges.",
+            15: "The Architect orchestrates the chaos.\nPrepare for the final push.",
+            20: "This is the Final Trial.\nEverything you've learned will be tested."
+        }
+        
+        if wave_num in narratives:
+            self.narrative_text = narratives[wave_num]
+            self.show_narrative = True
+            self.narrative_timer = 4.0
+    
+    def _check_upgrade_synergies(self, upgrades) -> None:
+        """Check if player has achieved any upgrade synergies."""
+        from engine.components.upgrades import UpgradeType
+        
+        self.active_synergies.clear()
+        
+        # Map upgrade types to simple names for synergy checking
+        type_mapping = {
+            UpgradeType.MULTISHOT: "multishot",
+            UpgradeType.RICOCHET: "ricochet",
+            UpgradeType.PIERCING: "piercing",
+            UpgradeType.ARMOR_PLUS: "armor",
+            UpgradeType.HP_PLUS: "hp",
+            UpgradeType.REGENERATION: "regeneration",
+            UpgradeType.DAMAGE_PLUS: "damage",
+            UpgradeType.FIRE_RATE_PLUS: "fire_rate",
+            UpgradeType.SPEED_PLUS: "speed",
+            UpgradeType.SHIELD_REGEN: "shield_regen",
+            UpgradeType.TIME_DILATION: "time_dilation",
+            UpgradeType.ALLY_DRONE: "ally_drone",
+        }
+        
+        # Get list of upgrade types the player has
+        player_upgrade_names = set()
+        for upgrade_type in upgrades.upgrades.keys():
+            if upgrade_type in type_mapping:
+                player_upgrade_names.add(type_mapping[upgrade_type])
+        
+        # Check each synergy
+        for synergy_id, synergy in UPGRADE_SYNERGIES.items():
+            required = set(synergy["required"])
+            if required.issubset(player_upgrade_names):
+                self.active_synergies.append(synergy)
     
     def _on_wave_complete(self, event: WaveCompleteEvent) -> None:
         """Handle wave complete event."""
@@ -612,20 +842,44 @@ class RoboArena:
 
 def main():
     """Main entry point."""
-    print("=" * 50)
-    print("  ROBO-ARENA")
-    print("  A Turtle Arena Shooter")
-    print("=" * 50)
     print()
-    print("Controls:")
-    print("  W/A/S/D       - Move (up/left/down/right)")
-    print("  Mouse         - Aim (player faces cursor)")
-    print("  Space/Click   - Fire")
-    print("  R             - Reload")
-    print("  Escape        - Pause Menu")
+    print("═" * 55)
+    print("           ╔═══════════════════════════╗")
+    print("           ║      R O B O - A R E N A   ║")
+    print("           ╚═══════════════════════════╝")
+    print("═" * 55)
     print()
-    print("Upgrades drop from enemies!")
-    print("Take damage = 50% chance to lose an upgrade stack")
+    print("         THE ARENA PROTOCOL")
+    print()
+    print("  You are a lone defense unit in a corrupted sector.")
+    print("  Wave after wave of hostile entities approach.")
+    print("  You can't retreat.")
+    print()
+    print("  You can only upgrade.")
+    print()
+    print("  Survive. Evolve. Transcend.")
+    print()
+    print("─" * 55)
+    print("  CONTROLS:")
+    print("    W/A/S/D     - Move (omnidirectional)")
+    print("    Mouse       - Aim (player faces cursor)")
+    print("    Click/Space - Fire")
+    print("    R           - Reload")
+    print("    Escape      - Pause Menu")
+    print()
+    print("  UPGRADE SYSTEM:")
+    print("    • Kill enemies to collect upgrade drops")
+    print("    • Upgrades stack for increased power")
+    print("    • Taking damage = 50% chance to lose a stack")
+    print("    • Bosses every 5 waves (guaranteed epic drops)")
+    print()
+    print("  ENEMY TYPES:")
+    print("    Blue    = Swarmer (fast, weak)")
+    print("    Green   = Scout (ranged)")
+    print("    Red     = Heavy (slow, tanky)")
+    print("    Purple  = Specialist (unique mechanics)")
+    print("    Orange  = Elite (dangerous)")
+    print("─" * 55)
     print()
     
     # Create and run game

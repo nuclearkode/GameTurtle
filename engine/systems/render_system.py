@@ -113,17 +113,49 @@ class RenderSystem(GameSystem):
         except turtle.TurtleGraphicsError:
             pass
         
-        # Diamond shape
+        # Diamond shape (for pickups)
         diamond_shape = ((0, 12), (8, 0), (0, -12), (-8, 0))
         try:
             self.screen.register_shape("diamond", diamond_shape)
         except turtle.TurtleGraphicsError:
             pass
         
+        # Star shape (5-pointed)
+        import math
+        star_points = []
+        for i in range(10):
+            angle = math.pi / 2 + i * math.pi / 5
+            r = 12 if i % 2 == 0 else 6
+            star_points.append((r * math.cos(angle), r * math.sin(angle)))
+        try:
+            self.screen.register_shape("star", tuple(star_points))
+        except turtle.TurtleGraphicsError:
+            pass
+        
+        # Hexagon shape (for special enemies)
+        hex_points = []
+        for i in range(6):
+            angle = math.pi / 6 + i * math.pi / 3
+            hex_points.append((10 * math.cos(angle), 10 * math.sin(angle)))
+        try:
+            self.screen.register_shape("hexagon", tuple(hex_points))
+        except turtle.TurtleGraphicsError:
+            pass
+        
+        # Pentagon shape
+        pent_points = []
+        for i in range(5):
+            angle = math.pi / 2 + i * 2 * math.pi / 5
+            pent_points.append((10 * math.cos(angle), 10 * math.sin(angle)))
+        try:
+            self.screen.register_shape("pentagon", tuple(pent_points))
+        except turtle.TurtleGraphicsError:
+            pass
+        
         self._custom_shapes_registered = True
     
     def _draw_arena_background(self) -> None:
-        """Draw static arena elements."""
+        """Draw static arena elements with theme support."""
         t = self._background_turtle
         if not t:
             return
@@ -132,26 +164,54 @@ class RenderSystem(GameSystem):
         t.penup()
         t.speed(0)
         
-        # Draw arena border
         hw = self.arena_width / 2
         hh = self.arena_height / 2
         
+        # Get theme colors (if available)
+        grid_color = "#222222"
+        border_color = "#444444"
+        accent_color = "#00ffff"
+        
+        # Try to get theme from game config
+        try:
+            from game.config import ArenaTheme, THEME_PALETTES
+            # Default to GRID theme if not specified
+            theme = getattr(self, '_arena_theme', ArenaTheme.GRID)
+            colors = THEME_PALETTES.get(theme, THEME_PALETTES[ArenaTheme.GRID])
+            grid_color = colors.grid_primary
+            border_color = colors.border
+            accent_color = colors.accent
+        except Exception:
+            pass
+        
+        # Draw arena border with glow effect
+        # Outer glow
+        t.goto(-hw - 2, -hh - 2)
+        t.pendown()
+        t.pensize(6)
+        t.pencolor(border_color)
+        for _ in range(2):
+            t.forward(self.arena_width + 4)
+            t.left(90)
+            t.forward(self.arena_height + 4)
+            t.left(90)
+        t.penup()
+        
+        # Inner border
         t.goto(-hw, -hh)
         t.pendown()
-        t.pensize(3)
-        t.pencolor("#444444")
-        
+        t.pensize(2)
+        t.pencolor(accent_color)
         for _ in range(2):
             t.forward(self.arena_width)
             t.left(90)
             t.forward(self.arena_height)
             t.left(90)
-        
         t.penup()
         
         # Draw grid lines
         t.pensize(1)
-        t.pencolor("#222222")
+        t.pencolor(grid_color)
         grid_size = 50
         
         # Vertical lines
@@ -168,7 +228,36 @@ class RenderSystem(GameSystem):
             t.goto(hw, y)
             t.penup()
         
+        # Draw corner accent markers
+        corner_size = 20
+        t.pensize(2)
+        t.pencolor(accent_color)
+        
+        corners = [
+            (-hw, -hh, 0),
+            (hw, -hh, 90),
+            (hw, hh, 180),
+            (-hw, hh, 270)
+        ]
+        
+        for cx, cy, angle in corners:
+            t.goto(cx, cy)
+            t.setheading(angle)
+            t.pendown()
+            t.forward(corner_size)
+            t.penup()
+            t.goto(cx, cy)
+            t.setheading(angle + 90)
+            t.pendown()
+            t.forward(corner_size)
+            t.penup()
+        
         t.hideturtle()
+    
+    def set_arena_theme(self, theme) -> None:
+        """Set the arena visual theme."""
+        self._arena_theme = theme
+        self._draw_arena_background()
     
     def update(self, dt: float) -> None:
         """Render all entities."""
@@ -285,6 +374,17 @@ class RenderSystem(GameSystem):
             return
             
         try:
+            import math
+            
+            # Handle pulse effect
+            if renderable.glow:
+                renderable._pulse_time += 0.016  # Approx dt
+                pulse = 0.5 + 0.5 * math.sin(renderable._pulse_time * renderable.pulse_speed * math.pi * 2)
+                # Adjust size based on pulse
+                pulse_size_factor = 0.9 + 0.2 * pulse
+            else:
+                pulse_size_factor = 1.0
+            
             # Shape
             shape_name = self._get_shape_name(renderable.shape)
             try:
@@ -307,8 +407,7 @@ class RenderSystem(GameSystem):
                     pass
             
             # Size - validate values
-            import math
-            size = renderable.size * transform.scale
+            size = renderable.size * transform.scale * pulse_size_factor
             if math.isfinite(size) and size > 0:
                 try:
                     t.shapesize(size, size)
@@ -334,8 +433,43 @@ class RenderSystem(GameSystem):
                     t.showturtle()
             except Exception:
                 pass
+            
+            # Handle TEXT shape - draw text symbol on top
+            if renderable.shape == RenderShape.TEXT and renderable.text_symbol:
+                self._draw_text_symbol(t, transform, renderable)
+                
         except Exception:
             # Catch any unexpected errors
+            pass
+    
+    def _draw_text_symbol(
+        self,
+        t: turtle.Turtle,
+        transform: Transform,
+        renderable: Renderable
+    ) -> None:
+        """Draw text symbol for TEXT shape renderables."""
+        try:
+            # Create or get text turtle for this entity
+            if renderable._text_turtle_ref is None:
+                text_t = self._create_turtle()
+                text_t.hideturtle()
+                renderable._text_turtle_ref = text_t
+            
+            text_t = renderable._text_turtle_ref
+            text_t.clear()
+            text_t.penup()
+            
+            # Position text centered on entity
+            font_size = int(renderable.size * 14)
+            text_t.goto(transform.x, transform.y - font_size // 2)
+            text_t.pencolor(renderable.outline_color or renderable.color)
+            text_t.write(
+                renderable.text_symbol,
+                align="center",
+                font=("Arial", font_size, "bold")
+            )
+        except Exception:
             pass
     
     def _get_shape_name(self, shape: RenderShape) -> str:
@@ -347,6 +481,10 @@ class RenderSystem(GameSystem):
             RenderShape.ARROW: "arrow",
             RenderShape.TURTLE: "turtle",
             RenderShape.CLASSIC: "classic",
+            RenderShape.DIAMOND: "diamond",
+            RenderShape.STAR: "star",
+            RenderShape.HEXAGON: "hexagon",
+            RenderShape.TEXT: "circle",  # TEXT uses circle as base, draws text on top
         }
         return shape_map.get(shape, "circle")
     

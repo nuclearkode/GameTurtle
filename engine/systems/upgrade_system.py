@@ -144,24 +144,31 @@ class UpgradeSystem(GameSystem):
         ))
         
         # Slight floating animation
-        self.entities.add_component(entity, Velocity(angular=90))
+        self.entities.add_component(entity, Velocity(angular=45))
         
-        # Renderable - color based on tier
-        tier_sizes = {1: 0.6, 2: 0.7, 3: 0.8, 4: 0.9, 5: 1.0}
-        size = tier_sizes.get(definition.tier.value, 0.6)
+        # Get text symbol for the upgrade type
+        symbol = self._get_upgrade_symbol(upgrade_type, definition)
+        
+        # Renderable - uses STAR shape with text symbol
+        # Size based on tier (higher tier = larger/more visible)
+        tier_sizes = {1: 0.7, 2: 0.8, 3: 0.9, 4: 1.0, 5: 1.2}
+        size = tier_sizes.get(definition.tier.value, 0.7)
         
         self.entities.add_component(entity, Renderable(
-            shape=RenderShape.CIRCLE,
+            shape=RenderShape.STAR,  # Star shape for pickups (distinct from enemies)
             color=definition.color,
             outline_color=definition.glow_color,
             size=size,
-            layer=RenderLayer.POWERUP
+            layer=RenderLayer.POWERUP,
+            text_symbol=symbol,  # Letter/symbol displayed
+            glow=True,  # Pulsing glow effect
+            pulse_speed=2.0
         ))
         
         # Collider (trigger for pickup)
         self.entities.add_component(entity, Collider(
             collider_type=ColliderType.CIRCLE,
-            radius=15.0,
+            radius=18.0,
             layer=CollisionMask.POWERUP,
             mask=CollisionMask.PLAYER,
             is_trigger=True
@@ -175,6 +182,54 @@ class UpgradeSystem(GameSystem):
         self.entities.add_tag(entity, "upgrade_pickup")
         
         return entity
+    
+    def _get_upgrade_symbol(self, upgrade_type: UpgradeType, definition: "UpgradeDefinition") -> str:
+        """Get a letter/symbol to represent the upgrade type."""
+        # Map upgrade types to letter symbols
+        symbol_map = {
+            # Tier 1 - Simple letters
+            UpgradeType.DAMAGE_PLUS: "D",
+            UpgradeType.FIRE_RATE_PLUS: "F",
+            UpgradeType.SPEED_PLUS: "S",
+            UpgradeType.HP_PLUS: "H",
+            
+            # Tier 2
+            UpgradeType.CRITICAL_CHANCE: "C",
+            UpgradeType.ARMOR_PLUS: "A",
+            UpgradeType.SHIELD_REGEN: "R",
+            UpgradeType.MULTISHOT: "M",
+            UpgradeType.PROJECTILE_SIZE: "P",
+            UpgradeType.ACCURACY: "a",
+            
+            # Tier 3
+            UpgradeType.PIERCING: "→",
+            UpgradeType.RICOCHET: "↺",
+            UpgradeType.KNOCKBACK: "K",
+            UpgradeType.WALL_PENETRATION: "W",
+            UpgradeType.LIFESTEAL: "L",
+            UpgradeType.THORNS: "T",
+            UpgradeType.REGENERATION: "+",
+            
+            # Tier 4
+            UpgradeType.DOUBLE_JUMP: "J",
+            UpgradeType.SLOW_AURA: "~",
+            UpgradeType.CRIT_MULTIPLIER: "X",
+            UpgradeType.POISON_TOUCH: "☠",
+            UpgradeType.HOMING: "◎",
+            UpgradeType.EXPLOSIVE_IMPACT: "☆",
+            UpgradeType.EVASION: "E",
+            
+            # Tier 5 - Epic
+            UpgradeType.BERSERK_MODE: "B",
+            UpgradeType.TIME_DILATION: "⏱",
+            UpgradeType.IMMUNE_FRAME: "I",
+            UpgradeType.ALLY_DRONE: "♦",
+            UpgradeType.MANA_SHIELD: "⬡",
+            UpgradeType.FEEDBACK_LOOP: "∞",
+            UpgradeType.PROBABILITY_FIELD: "?",
+        }
+        
+        return symbol_map.get(upgrade_type, "?")
     
     def update(self, dt: float) -> None:
         """Apply upgrades and process pickup collisions."""
